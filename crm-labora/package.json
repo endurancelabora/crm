@@ -1,0 +1,12 @@
+{
+  "name": "crm-labora",
+  "version": "1.0.0",
+  "description": "CRM Labora",
+  "scripts": {
+    "start": "node backend/server.js",
+    "postinstall": "cd backend && npm install"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
