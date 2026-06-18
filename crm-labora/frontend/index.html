@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CRM Labora</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3349;
+      --text: #e8eaf0;
+      --text2: #8b90a7;
+      --accent: #5b6af0;
+      --accent-light: #7b89f4;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --blue: #3b82f6;
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
+
+    /* ── Layout ── */
+    .app { display: flex; min-height: 100vh; }
+    .sidebar { width: 220px; background: var(--bg2); border-right: 1px solid var(--border); padding: 24px 0; flex-shrink: 0; display: flex; flex-direction: column; }
+    .main { flex: 1; overflow: auto; }
+
+    /* ── Sidebar ── */
+    .logo { padding: 0 20px 24px; font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+    .logo span { color: var(--accent-light); }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; cursor: pointer; color: var(--text2); transition: all 0.15s; border-radius: 0; font-size: 13.5px; }
+    .nav-item:hover { background: var(--bg3); color: var(--text); }
+    .nav-item.active { background: var(--bg3); color: var(--text); border-right: 2px solid var(--accent); }
+    .nav-icon { font-size: 16px; width: 18px; text-align: center; }
+
+    /* ── Header de página ── */
+    .page-header { padding: 28px 32px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .page-title { font-size: 20px; font-weight: 600; }
+    .page-subtitle { color: var(--text2); font-size: 13px; margin-top: 2px; }
+
+    /* ── Stats cards ── */
+    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; padding: 24px 32px; }
+    .stat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+    .stat-number { font-size: 28px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+    .stat-label { color: var(--text2); font-size: 12px; }
+    .stat-card.accent .stat-number { color: var(--accent-light); }
+    .stat-card.green .stat-number { color: var(--green); }
+    .stat-card.amber .stat-number { color: var(--amber); }
+    .stat-card.red .stat-number { color: var(--red); }
+
+    /* ── Filtros ── */
+    .filters { padding: 0 32px 20px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .filter-input { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; transition: border 0.15s; }
+    .filter-input:focus { border-color: var(--accent); }
+    .filter-input::placeholder { color: var(--text2); }
+    input.filter-input { width: 220px; }
+    select.filter-input { cursor: pointer; }
+    .btn { padding: 8px 16px; border-radius: var(--radius-sm); border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-light); }
+    .btn-ghost { background: var(--bg2); border: 1px solid var(--border); color: var(--text2); }
+    .btn-ghost:hover { color: var(--text); border-color: var(--text2); }
+    .btn-green { background: #166534; color: var(--green); border: 1px solid #16a34a33; }
+    .btn-green:hover { background: #15803d33; }
+    .ml-auto { margin-left: auto; }
+
+    /* ── Tabla ── */
+    .table-wrap { padding: 0 32px 32px; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th { text-align: left; padding: 10px 14px; color: var(--text2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+    .table td { padding: 12px 14px; border-bottom: 1px solid var(--border)1a; vertical-align: top; }
+    .table tr:hover td { background: var(--bg2)88; cursor: pointer; }
+    .table tr:last-child td { border-bottom: none; }
+
+    /* ── Badges ── */
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+    .badge-green { background: #14532d33; color: #4ade80; border: 1px solid #16a34a33; }
+    .badge-amber { background: #78350f33; color: #fbbf24; border: 1px solid #d9770633; }
+    .badge-blue { background: #1e3a5f33; color: #60a5fa; border: 1px solid #2563eb33; }
+    .badge-gray { background: var(--bg3); color: var(--text2); border: 1px solid var(--border); }
+    .badge-red { background: #450a0a33; color: #f87171; border: 1px solid #dc262633; }
+
+    /* ── Paginación ── */
+    .pagination { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px; border-top: 1px solid var(--border); }
+    .pagination-info { color: var(--text2); font-size: 13px; }
+    .pagination-btns { display: flex; gap: 6px; }
+    .page-btn { width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg2); color: var(--text2); cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+    .page-btn:hover { color: var(--text); }
+    .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── Panel de detalle (drawer) ── */
+    .drawer-overlay { position: fixed; inset: 0; background: #00000066; z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+    .drawer-overlay.open { opacity: 1; pointer-events: all; }
+    .drawer { position: fixed; right: 0; top: 0; bottom: 0; width: 580px; background: var(--bg2); border-left: 1px solid var(--border); z-index: 101; transform: translateX(100%); transition: transform 0.25s ease; overflow-y: auto; }
+    .drawer.open { transform: translateX(0); }
+    .drawer-header { padding: 24px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; }
+    .drawer-name { font-size: 18px; font-weight: 600; }
+    .drawer-email { color: var(--text2); font-size: 13px; margin-top: 3px; }
+    .close-btn { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 20px; padding: 4px; line-height: 1; }
+    .close-btn:hover { color: var(--text); }
+    .drawer-body { padding: 24px; }
+    .drawer-section { margin-bottom: 28px; }
+    .drawer-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text2); margin-bottom: 12px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .info-item label { font-size: 11px; color: var(--text2); display: block; margin-bottom: 3px; }
+    .info-item span { font-size: 13px; color: var(--text); }
+
+    /* ── Interacciones en el drawer ── */
+    .interaction-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 10px; }
+    .interaction-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .interaction-campaign { font-weight: 500; font-size: 13px; }
+    .interaction-date { color: var(--text2); font-size: 11px; }
+    .interaction-msg { color: var(--text2); font-size: 12px; line-height: 1.5; margin-top: 8px; background: var(--bg2); border-radius: 4px; padding: 8px 10px; max-height: 80px; overflow-y: auto; }
+
+    /* ── Notas ── */
+    .nota-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .nota-text { font-size: 13px; line-height: 1.5; flex: 1; }
+    .nota-date { color: var(--text2); font-size: 11px; margin-top: 4px; }
+    .nota-delete { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 14px; padding: 2px; opacity: 0; transition: opacity 0.15s; }
+    .nota-card:hover .nota-delete { opacity: 1; }
+    .nota-delete:hover { color: var(--red); }
+    .nota-form { display: flex; gap: 8px; margin-top: 12px; }
+    .nota-input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; resize: none; min-height: 38px; }
+    .nota-input:focus { border-color: var(--accent); }
+    .nota-input::placeholder { color: var(--text2); }
+
+    /* ── Login ── */
+    .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .login-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; width: 360px; }
+    .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .login-sub { color: var(--text2); font-size: 13px; margin-bottom: 28px; }
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 6px; font-weight: 500; }
+    .form-control { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; color: var(--text); font-size: 14px; outline: none; transition: border 0.15s; }
+    .form-control:focus { border-color: var(--accent); }
+    .btn-block { width: 100%; padding: 11px; font-size: 14px; }
+    .login-error { color: var(--red); font-size: 13px; margin-top: 10px; text-align: center; }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; padding: 60px 20px; color: var(--text2); }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-text { font-size: 15px; margin-bottom: 6px; color: var(--text); }
+
+    /* ── Loading ── */
+    .loading { text-align: center; padding: 40px; color: var(--text2); }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin-bottom: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+  </style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════
+const API_BASE = '';  // mismo servidor
+let API_KEY = localStorage.getItem('crm_api_key') || '';
+
+// ═══════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(API_BASE + path, {
+    ...opts,
+    headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json', ...(opts.headers || {}) }
+  });
+  if (res.status === 401) { API_KEY = ''; localStorage.removeItem('crm_api_key'); render(); return null; }
+  return res.json();
+}
+
+function badgeCategoria(cat) {
+  if (!cat) return '';
+  const map = {
+    'Interested': 'badge-green',
+    'Respondió': 'badge-blue',
+    'Abrió': 'badge-gray',
+    'Enviado': 'badge-gray',
+    'Out of Office': 'badge-amber',
+    'Not Interested': 'badge-red',
+  };
+  const cls = Object.entries(map).find(([k]) => cat.includes(k))?.[1] || 'badge-gray';
+  return `<span class="badge ${cls}">${cat}</span>`;
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function fmtName(c) {
+  const n = [c.nombre, c.apellido].filter(Boolean).join(' ');
+  return n || c.email.split('@')[0];
+}
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let state = {
+  view: 'contactos',
+  contactos: [], total: 0, page: 1,
+  buscar: '', campaign: '', categoria: '',
+  campanas: [],
+  stats: null,
+  drawerEmail: null,
+  drawerData: null,
+};
+
+// ═══════════════════════════════════════════════════════════
+// RENDER PRINCIPAL
+// ═══════════════════════════════════════════════════════════
+function render() {
+  const app = document.getElementById('app');
+  if (!API_KEY) { app.innerHTML = renderLogin(); bindLogin(); return; }
+  app.innerHTML = renderApp();
+  bindApp();
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOGIN
+// ═══════════════════════════════════════════════════════════
+function renderLogin() {
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-title">CRM <span style="color:var(--accent-light)">Labora</span></div>
+      <div class="login-sub">Ingresa tu clave de acceso para continuar</div>
+      <div class="form-group">
+        <label class="form-label">Clave de acceso</label>
+        <input class="form-control" type="password" id="login-key" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary btn-block" id="login-btn">Entrar</button>
+      <div class="login-error" id="login-error" style="display:none">Clave incorrecta</div>
+    </div>
+  </div>`;
+}
+
+function bindLogin() {
+  const btn = document.getElementById('login-btn');
+  const input = document.getElementById('login-key');
+  async function tryLogin() {
+    const key = input.value.trim();
+    if (!key) return;
+    API_KEY = key;
+    const data = await apiFetch('/api/stats');
+    if (data) { localStorage.setItem('crm_api_key', key); loadAll(); }
+    else { API_KEY = ''; document.getElementById('login-error').style.display = 'block'; }
+  }
+  btn.addEventListener('click', tryLogin);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+}
+
+// ═══════════════════════════════════════════════════════════
+// APP SHELL
+// ═══════════════════════════════════════════════════════════
+function renderApp() {
+  return `
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">CRM <span>Labora</span></div>
+      <div class="nav-item ${state.view==='contactos'?'active':''}" data-view="contactos">
+        <span class="nav-icon">👥</span> Contactos
+      </div>
+      <div class="nav-item ${state.view==='campanas'?'active':''}" data-view="campanas">
+        <span class="nav-icon">📣</span> Campañas
+      </div>
+      <div style="margin-top:auto; padding: 16px 20px;">
+        <div style="color:var(--text2);font-size:11px;margin-bottom:6px">Sesión activa</div>
+        <button class="btn btn-ghost" id="logout-btn" style="width:100%;font-size:12px">Cerrar sesión</button>
+      </div>
+    </aside>
+    <div class="main" id="main-content">
+      ${state.view === 'contactos' ? renderContactos() : renderCampanas()}
+    </div>
+  </div>
+  ${renderDrawer()}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// VISTA CONTACTOS
+// ═══════════════════════════════════════════════════════════
+function renderContactos() {
+  const totalPages = Math.ceil(state.total / 50);
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Contactos</div>
+      <div class="page-subtitle">${state.total.toLocaleString()} contactos encontrados</div>
+    </div>
+    <button class="btn btn-green" id="export-btn">⬇ Exportar CSV</button>
+  </div>
+  ${renderStats()}
+  <div class="filters">
+    <input class="filter-input" type="text" id="buscar-input" placeholder="🔍  Buscar por nombre, email o empresa..." value="${state.buscar}">
+    <select class="filter-input" id="categoria-select">
+      <option value="">Todas las categorías</option>
+      <option value="Interested" ${state.categoria==='Interested'?'selected':''}>Interested</option>
+      <option value="Respondió" ${state.categoria==='Respondió'?'selected':''}>Respondió</option>
+      <option value="Abrió" ${state.categoria==='Abrió'?'selected':''}>Abrió</option>
+      <option value="Out of Office" ${state.categoria==='Out of Office'?'selected':''}>Out of Office</option>
+      <option value="Not Interested" ${state.categoria==='Not Interested'?'selected':''}>Not Interested</option>
+    </select>
+    <select class="filter-input" id="campaign-select">
+      <option value="">Todas las campañas</option>
+      ${(state.campanas || []).map(c => `<option value="${c.campaign_name}" ${state.campaign===c.campaign_name?'selected':''}>${c.campaign_name} (${c.interesados} int.)</option>`).join('')}
+    </select>
+    <button class="btn btn-ghost" id="clear-btn">Limpiar</button>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Contacto</th>
+          <th>Empresa</th>
+          <th>Campañas</th>
+          <th>Categoría</th>
+          <th>Última actividad</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${state.contactos.length ? state.contactos.map(c => `
+        <tr data-email="${c.email}">
+          <td>
+            <div style="font-weight:500">${fmtName(c)}</div>
+            <div style="color:var(--text2);font-size:12px">${c.email}</div>
+          </td>
+          <td style="color:var(--text2)">${c.empresa || '—'}</td>
+          <td style="color:var(--text2);font-size:12px">${c.total_campanas || 0}</td>
+          <td>${c.categorias ? c.categorias.split(', ').map(badgeCategoria).join(' ') : '—'}</td>
+          <td style="color:var(--text2)">${fmtDate(c.ultima_actividad)}</td>
+          <td>
+            ${c.no_contactar ? '<span class="badge badge-red">No contactar</span>' : ''}
+            ${c.email_rebotado ? '<span class="badge badge-amber">Rebotado</span>' : ''}
+          </td>
+        </tr>`).join('') : `<tr><td colspan="6"><div class="empty"><div class="empty-icon">🔍</div><div class="empty-text">Sin resultados</div><div>Intenta cambiar los filtros</div></div></td></tr>`}
+      </tbody>
+    </table>
+  </div>
+  ${totalPages > 1 ? `
+  <div class="pagination">
+    <div class="pagination-info">Página ${state.page} de ${totalPages}</div>
+    <div class="pagination-btns">
+      ${state.page > 1 ? `<button class="page-btn" data-page="${state.page-1}">←</button>` : ''}
+      ${Array.from({length: Math.min(totalPages, 7)}, (_, i) => {
+        const pg = i + 1;
+        return `<button class="page-btn ${state.page===pg?'active':''}" data-page="${pg}">${pg}</button>`;
+      }).join('')}
+      ${state.page < totalPages ? `<button class="page-btn" data-page="${state.page+1}">→</button>` : ''}
+    </div>
+  </div>` : ''}`;
+}
+
+function renderStats() {
+  if (!state.stats) return '';
+  const s = state.stats;
+  return `
+  <div class="stats-grid">
+    <div class="stat-card accent"><div class="stat-number">${parseInt(s.total_contactos).toLocaleString()}</div><div class="stat-label">Total contactos</div></div>
+    <div class="stat-card green"><div class="stat-number">${parseInt(s.total_interesados).toLocaleString()}</div><div class="stat-label">Interesados</div></div>
+    <div class="stat-card"><div class="stat-number">${parseInt(s.total_campanas).toLocaleString()}</div><div class="stat-label">Campañas</div></div>
+    <div class="stat-card amber"><div class="stat-number">${parseInt(s.no_contactar).toLocaleString()}</div><div class="stat-label">No contactar</div></div>
+    <div class="stat-card red"><div class="stat-number">${parseInt(s.rebotados).toLocaleString()}</div><div class="stat-label">Rebotados</div></div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// VISTA CAMPAÑAS
+// ═══════════════════════════════════════════════════════════
+function renderCampanas() {
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Campañas</div>
+      <div class="page-subtitle">${(state.campanas||[]).length} campañas registradas</div>
+    </div>
+  </div>
+  <div class="table-wrap" style="padding-top:24px">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Campaña</th>
+          <th>Total contactos</th>
+          <th>Interesados</th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${(state.campanas||[]).length ? (state.campanas||[]).map(c => `
+        <tr>
+          <td><div style="font-weight:500">${c.campaign_name}</div></td>
+          <td style="color:var(--text2)">${c.total_contactos}</td>
+          <td>${parseInt(c.interesados) > 0 ? `<span class="badge badge-green">${c.interesados} interesados</span>` : '<span class="badge badge-gray">0</span>'}</td>
+          <td><button class="btn btn-green btn-exportar-camp" data-campaign="${c.campaign_name}" data-cat="Interested">⬇ Exportar interesados</button></td>
+        </tr>`).join('') : `<tr><td colspan="4"><div class="empty"><div class="empty-icon">📣</div><div class="empty-text">Sin campañas aún</div></div></td></tr>`}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// DRAWER (perfil del contacto)
+// ═══════════════════════════════════════════════════════════
+function renderDrawer() {
+  const d = state.drawerData;
+  const open = !!state.drawerEmail;
+  return `
+  <div class="drawer-overlay ${open?'open':''}" id="drawer-overlay"></div>
+  <div class="drawer ${open?'open':''}" id="drawer">
+    ${d ? `
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-name">${fmtName(d.contacto)}</div>
+        <div class="drawer-email">${d.contacto.email}</div>
+        ${d.contacto.no_contactar ? '<span class="badge badge-red" style="margin-top:6px">No contactar</span>' : ''}
+        ${d.contacto.email_rebotado ? '<span class="badge badge-amber" style="margin-top:6px;margin-left:4px">Rebotado</span>' : ''}
+      </div>
+      <button class="close-btn" id="close-drawer">✕</button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-section">
+        <div class="drawer-section-title">Información</div>
+        <div class="info-grid">
+          <div class="info-item"><label>Empresa</label><span>${d.contacto.empresa || '—'}</span></div>
+          <div class="info-item"><label>Teléfono</label><span>${d.contacto.telefono || '—'}</span></div>
+          <div class="info-item"><label>Ubicación</label><span>${d.contacto.ubicacion || '—'}</span></div>
+          <div class="info-item"><label>Agregado</label><span>${fmtDate(d.contacto.created_at)}</span></div>
+        </div>
+      </div>
+
+      <div class="drawer-section">
+        <div class="drawer-section-title">Historial de campañas (${d.interacciones.length})</div>
+        ${d.interacciones.length ? d.interacciones.map(i => `
+        <div class="interaction-card">
+          <div class="interaction-header">
+            <div class="interaction-campaign">${i.campaign_name || 'Campaña desconocida'}</div>
+            ${badgeCategoria(i.categoria)}
+          </div>
+          <div style="color:var(--text2);font-size:11px">${fmtDate(i.fecha_respuesta)}</div>
+          ${i.mensaje_respuesta ? `<div class="interaction-msg">${i.mensaje_respuesta}</div>` : ''}
+        </div>`).join('') : '<div style="color:var(--text2);font-size:13px">Sin interacciones registradas</div>'}
+      </div>
+
+      <div class="drawer-section">
+        <div class="drawer-section-title">Notas (${d.notas.length})</div>
+        ${d.notas.map(n => `
+        <div class="nota-card">
+          <div>
+            <div class="nota-text">${n.nota}</div>
+            <div class="nota-date">${fmtDate(n.created_at)}</div>
+          </div>
+          <button class="nota-delete" data-nota-id="${n.id}" title="Eliminar">✕</button>
+        </div>`).join('')}
+        <div class="nota-form">
+          <textarea class="nota-input" id="nota-input" placeholder="Agregar una nota..." rows="2"></textarea>
+          <button class="btn btn-primary" id="nota-save-btn">Guardar</button>
+        </div>
+      </div>
+    </div>` : '<div class="loading"><div class="spinner"></div><br>Cargando...</div>'}
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// BIND EVENTS
+// ═══════════════════════════════════════════════════════════
+function bindApp() {
+  // Nav
+  document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+    el.addEventListener('click', () => { state.view = el.dataset.view; render(); });
+  });
+
+  // Logout
+  document.getElementById('logout-btn')?.addEventListener('click', () => {
+    API_KEY = ''; localStorage.removeItem('crm_api_key'); render();
+  });
+
+  if (state.view === 'contactos') {
+    // Búsqueda con debounce
+    let t;
+    document.getElementById('buscar-input')?.addEventListener('input', e => {
+      clearTimeout(t);
+      t = setTimeout(() => { state.buscar = e.target.value; state.page = 1; loadContactos(); }, 350);
+    });
+
+    // Filtros
+    document.getElementById('categoria-select')?.addEventListener('change', e => {
+      state.categoria = e.target.value; state.page = 1; loadContactos();
+    });
+    document.getElementById('campaign-select')?.addEventListener('change', e => {
+      state.campaign = e.target.value; state.page = 1; loadContactos();
+    });
+
+    // Limpiar filtros
+    document.getElementById('clear-btn')?.addEventListener('click', () => {
+      state.buscar = ''; state.categoria = ''; state.campaign = ''; state.page = 1; loadContactos();
+    });
+
+    // Exportar
+    document.getElementById('export-btn')?.addEventListener('click', exportar);
+
+    // Paginación
+    document.querySelectorAll('.page-btn[data-page]').forEach(btn => {
+      btn.addEventListener('click', () => { state.page = parseInt(btn.dataset.page); loadContactos(); });
+    });
+
+    // Fila → abrir drawer
+    document.querySelectorAll('tr[data-email]').forEach(row => {
+      row.addEventListener('click', () => openDrawer(row.dataset.email));
+    });
+  }
+
+  if (state.view === 'campanas') {
+    document.querySelectorAll('.btn-exportar-camp').forEach(btn => {
+      btn.addEventListener('click', () => exportar(btn.dataset.campaign, btn.dataset.cat));
+    });
+  }
+
+  // Drawer
+  document.getElementById('drawer-overlay')?.addEventListener('click', closeDrawer);
+  document.getElementById('close-drawer')?.addEventListener('click', closeDrawer);
+
+  // Notas
+  document.getElementById('nota-save-btn')?.addEventListener('click', saveNota);
+  document.querySelectorAll('.nota-delete').forEach(btn => {
+    btn.addEventListener('click', () => deleteNota(btn.dataset.notaId));
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// ACCIONES
+// ═══════════════════════════════════════════════════════════
+async function loadAll() {
+  const [stats, campanas] = await Promise.all([
+    apiFetch('/api/stats'),
+    apiFetch('/api/campanas')
+  ]);
+  state.stats = stats;
+  state.campanas = campanas || [];
+  await loadContactos();
+}
+
+async function loadContactos() {
+  const params = new URLSearchParams({
+    page: state.page, limit: 50,
+    ...(state.buscar && { buscar: state.buscar }),
+    ...(state.campaign && { campaign: state.campaign }),
+    ...(state.categoria && { categoria: state.categoria }),
+  });
+  const data = await apiFetch(`/api/contactos?${params}`);
+  if (!data) return;
+  state.contactos = data.data;
+  state.total = data.total;
+  const main = document.getElementById('main-content');
+  if (main) main.innerHTML = renderContactos();
+  // Re-bind solo la vista actual
+  bindContactosEvents();
+}
+
+function bindContactosEvents() {
+  let t;
+  document.getElementById('buscar-input')?.addEventListener('input', e => {
+    clearTimeout(t);
+    t = setTimeout(() => { state.buscar = e.target.value; state.page = 1; loadContactos(); }, 350);
+  });
+  document.getElementById('categoria-select')?.addEventListener('change', e => {
+    state.categoria = e.target.value; state.page = 1; loadContactos();
+  });
+  document.getElementById('campaign-select')?.addEventListener('change', e => {
+    state.campaign = e.target.value; state.page = 1; loadContactos();
+  });
+  document.getElementById('clear-btn')?.addEventListener('click', () => {
+    state.buscar = ''; state.categoria = ''; state.campaign = ''; state.page = 1; loadContactos();
+  });
+  document.getElementById('export-btn')?.addEventListener('click', () => exportar());
+  document.querySelectorAll('.page-btn[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => { state.page = parseInt(btn.dataset.page); loadContactos(); });
+  });
+  document.querySelectorAll('tr[data-email]').forEach(row => {
+    row.addEventListener('click', () => openDrawer(row.dataset.email));
+  });
+}
+
+async function openDrawer(email) {
+  state.drawerEmail = email;
+  state.drawerData = null;
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer-overlay').classList.add('open');
+  document.getElementById('drawer').innerHTML = '<div class="loading" style="padding:60px"><div class="spinner"></div></div>';
+
+  const data = await apiFetch(`/api/contactos/${encodeURIComponent(email)}`);
+  if (data) {
+    state.drawerData = data;
+    document.getElementById('drawer').outerHTML; // force
+    const drawer = document.getElementById('drawer');
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderDrawer();
+    const newDrawer = tmp.querySelector('#drawer');
+    drawer.innerHTML = newDrawer.innerHTML;
+    bindDrawerEvents();
+  }
+}
+
+function bindDrawerEvents() {
+  document.getElementById('close-drawer')?.addEventListener('click', closeDrawer);
+  document.getElementById('nota-save-btn')?.addEventListener('click', saveNota);
+  document.querySelectorAll('.nota-delete').forEach(btn => {
+    btn.addEventListener('click', () => deleteNota(btn.dataset.notaId));
+  });
+}
+
+function closeDrawer() {
+  state.drawerEmail = null;
+  state.drawerData = null;
+  document.getElementById('drawer')?.classList.remove('open');
+  document.getElementById('drawer-overlay')?.classList.remove('open');
+}
+
+async function saveNota() {
+  const input = document.getElementById('nota-input');
+  const nota = input?.value.trim();
+  if (!nota || !state.drawerEmail) return;
+  await apiFetch('/api/notas', { method: 'POST', body: JSON.stringify({ email: state.drawerEmail, nota }) });
+  openDrawer(state.drawerEmail);
+}
+
+async function deleteNota(id) {
+  if (!confirm('¿Eliminar esta nota?')) return;
+  await apiFetch(`/api/notas/${id}`, { method: 'DELETE' });
+  openDrawer(state.drawerEmail);
+}
+
+async function exportar(campaign, categoria) {
+  const params = new URLSearchParams({
+    ...(campaign || state.campaign ? { campaign: campaign || state.campaign } : {}),
+    ...(categoria || state.categoria ? { categoria: categoria || state.categoria } : {}),
+  });
+  window.location.href = `${API_BASE}/api/exportar?${params}&api_key=${API_KEY}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+if (API_KEY) { loadAll().then(render); }
+else { render(); }
+</script>
+</body>
+</html>
