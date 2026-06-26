@@ -602,6 +602,7 @@ function renderContacts() {
         <button class="btn btn-ghost" id="columns-btn">⊞ Columns</button>
         <div class="dropdown-panel hidden" id="columns-panel" style="min-width:220px">
           <div class="panel-title">Visible Columns — drag to reorder</div>
+          <input type="text" id="col-search" placeholder="🔍 Search column..." style="width:100%;box-sizing:border-box;margin-bottom:8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text);font-size:12px;outline:none">
           <div id="col-order-list">
           ${state.colOrder.map(c => `
           <div class="col-check-item${c.required?' required':''}" draggable="${!c.required}" data-col-key="${c.key}" style="display:flex;gap:6px;align-items:center">
@@ -2141,6 +2142,14 @@ function bindContactsEvents() {
   // Columns panel
   document.getElementById('columns-btn')?.addEventListener('click', e => {
     e.stopPropagation(); togglePanel('columns-btn', 'columns-panel');
+    setTimeout(() => document.getElementById('col-search')?.focus(), 50);
+  });
+  document.getElementById('col-search')?.addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('#col-order-list .col-check-item').forEach(item => {
+      const label = item.querySelector('span:last-child')?.textContent.toLowerCase() || '';
+      item.style.display = label.includes(q) ? '' : 'none';
+    });
   });
   document.querySelectorAll('.col-check-item input[data-col]').forEach(cb => {
     cb.addEventListener('change', () => {
