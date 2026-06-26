@@ -1064,8 +1064,10 @@ function renderDrawer() {
 }
 
 function openChatModal(campName, d) {
-  const cl = (d.campaign_leads||[]).find(c => c.campaign_name === campName);
-  const acts = (d.campaign_activity||[]).filter(a => a.campaign_name === campName).sort((a,b) => new Date(a.sent_at||0)-new Date(b.sent_at||0));
+  const norm = s => (s||'').trim().toLowerCase();
+  const cl = (d.campaign_leads||[]).find(c => norm(c.campaign_name) === norm(campName));
+  const acts = (d.campaign_activity||[]).filter(a => norm(a.campaign_name) === norm(campName)).sort((a,b) => new Date(a.sent_at||0)-new Date(b.sent_at||0));
+  console.log('Chat debug - campName:', campName, '| acts found:', acts.length, '| all activity campaigns:', [...new Set((d.campaign_activity||[]).map(a=>a.campaign_name))]);
   const seqFromLeads = parseInt((cl?.current_sequence||'').replace(/\D/g,''))||0;
   const sentCount = acts.length || seqFromLeads;
 
