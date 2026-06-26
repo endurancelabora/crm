@@ -1004,7 +1004,8 @@ function renderDrawer() {
         <div class="drawer-section-title">Campaign history (${(d.campaign_leads||[]).length})</div>
         ${(d.campaign_leads||[]).length ? d.campaign_leads.map(cl => {
           const acts = (d.campaign_activity||[]).filter(a => a.campaign_name === cl.campaign_name);
-          const sentCount = acts.filter(a => a.sent_at).length;
+          const seqFromLeads = parseInt((cl.current_sequence||'').replace(/\D/g,''))||0;
+          const sentCount = acts.length || seqFromLeads;
           const hasReply = acts.some(a => a.replied_at) || cl.reply_message;
           return `
           <div class="campaign-card" data-camp-name="${encodeURIComponent(cl.campaign_name||'')}">
@@ -1065,7 +1066,8 @@ function renderDrawer() {
 function openChatModal(campName, d) {
   const cl = (d.campaign_leads||[]).find(c => c.campaign_name === campName);
   const acts = (d.campaign_activity||[]).filter(a => a.campaign_name === campName).sort((a,b) => new Date(a.sent_at||0)-new Date(b.sent_at||0));
-  const sentCount = acts.filter(a => a.sent_at).length;
+  const seqFromLeads = parseInt((cl?.current_sequence||'').replace(/\D/g,''))||0;
+  const sentCount = acts.length || seqFromLeads;
 
   const messages = [];
   acts.forEach(a => {
