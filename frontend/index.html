@@ -2399,6 +2399,13 @@ function refreshDrawerUI() {
     }
     refreshDrawerUI();
   });
+
+  document.querySelectorAll('.campaign-card[data-camp-name]').forEach(card => {
+    card.addEventListener('click', () => {
+      const name = decodeURIComponent(card.dataset.campName);
+      openChatModal(name, state.drawerData);
+    });
+  });
 }
 
 async function saveNote() {
