@@ -102,13 +102,28 @@
     .info-item label { font-size: 11px; color: var(--text2); display: block; margin-bottom: 3px; }
     .info-item span { font-size: 13px; color: var(--text); }
 
-    .campaign-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 10px; }
+    .campaign-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 10px; cursor: pointer; transition: border-color 0.15s; }
+    .campaign-card:hover { border-color: var(--accent); }
     .campaign-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
     .campaign-name { font-weight: 500; font-size: 13px; }
     .campaign-msg { color: var(--text2); font-size: 12px; line-height: 1.5; margin-top: 8px; background: var(--bg2); border-radius: 4px; padding: 8px 10px; max-height: 80px; overflow-y: auto; }
     .activity-row { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
     .activity-item { font-size: 11px; color: var(--text2); }
     .activity-item span { color: var(--text); font-weight: 500; }
+    /* Chat modal */
+    .chat-overlay { position: fixed; inset: 0; background: #00000080; z-index: 200; display: flex; align-items: center; justify-content: center; }
+    .chat-modal { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); width: 560px; max-height: 80vh; display: flex; flex-direction: column; }
+    .chat-modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .chat-modal-title { font-weight: 600; font-size: 14px; }
+    .chat-modal-sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .chat-bubble-wrap { display: flex; flex-direction: column; }
+    .chat-bubble-wrap.sent { align-items: flex-end; }
+    .chat-bubble-wrap.reply { align-items: flex-start; }
+    .chat-bubble { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+    .chat-bubble.sent { background: var(--accent); color: #fff; border-bottom-right-radius: 3px; }
+    .chat-bubble.reply { background: var(--bg3); color: var(--text); border-bottom-left-radius: 3px; }
+    .chat-meta { font-size: 10px; color: var(--text2); margin-top: 4px; }
 
     .nota-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
     .nota-text { font-size: 13px; line-height: 1.5; flex: 1; }
@@ -989,24 +1004,18 @@ function renderDrawer() {
         <div class="drawer-section-title">Campaign history (${(d.campaign_leads||[]).length})</div>
         ${(d.campaign_leads||[]).length ? d.campaign_leads.map(cl => {
           const acts = (d.campaign_activity||[]).filter(a => a.campaign_name === cl.campaign_name);
+          const sentCount = acts.filter(a => a.sent_at).length;
+          const hasReply = acts.some(a => a.replied_at) || cl.reply_message;
           return `
-          <div class="campaign-card">
+          <div class="campaign-card" data-camp-name="${encodeURIComponent(cl.campaign_name||'')}">
             <div class="campaign-header">
               <div class="campaign-name">${cl.campaign_name || 'Unknown campaign'}</div>
-              ${badge(cl.lead_category)}
+              <div style="display:flex;gap:6px;align-items:center">
+                ${badge(cl.lead_category)}
+                <span style="font-size:11px;color:var(--text2)">▶</span>
+              </div>
             </div>
-            <div style="color:var(--text2);font-size:11px">Status: ${cl.status || '—'} · Sequence: ${cl.current_sequence || '—'}</div>
-            ${acts.length ? `
-            <div class="activity-row">
-              ${acts.map(a => `
-              <div class="activity-item">Seq ${a.sequence_number}:
-                <span>${a.sent_at ? '✉ Sent' : ''}</span>
-                ${a.opened_at ? '<span>👁 Opened</span>' : ''}
-                ${a.replied_at ? '<span>↩ Replied</span>' : ''}
-                ${parseInt(a.open_count)>0 ? `<span>(${a.open_count} opens)</span>` : ''}
-              </div>`).join('')}
-            </div>` : ''}
-            ${cl.reply_message ? `<div class="campaign-msg">${cl.reply_message}</div>` : ''}
+            <div style="color:var(--text2);font-size:11px">Status: ${cl.status || '—'} · Sequence: ${cl.current_sequence || '—'} · <span style="color:var(--text)">${sentCount} email${sentCount!==1?'s':''} enviado${sentCount!==1?'s':''}</span>${hasReply ? ' · <span style="color:#4ade80">↩ Respuesta</span>' : ''}</div>
           </div>`;
         }).join('') : '<div style="color:var(--text2);font-size:13px">No campaign history</div>'}
       </div>
@@ -1049,7 +1058,54 @@ function renderDrawer() {
         </div>
       </div>
     </div>` : '<div class="loading"><div class="spinner"></div><br>Loading...</div>'}
+  </div>
+  <div id="chat-modal-root"></div>`;
+}
+
+function openChatModal(campName, d) {
+  const cl = (d.campaign_leads||[]).find(c => c.campaign_name === campName);
+  const acts = (d.campaign_activity||[]).filter(a => a.campaign_name === campName).sort((a,b) => new Date(a.sent_at||0)-new Date(b.sent_at||0));
+  const sentCount = acts.filter(a => a.sent_at).length;
+
+  const messages = [];
+  acts.forEach(a => {
+    if (a.sent_at) messages.push({ type:'sent', date: a.sent_at, seq: a.sequence_number, body: a.sent_email_body, opens: parseInt(a.open_count)||0, clicked: !!a.clicked_at });
+    if (a.replied_at && a.reply_message) messages.push({ type:'reply', date: a.replied_at, body: a.reply_message });
+  });
+  if (cl?.reply_message && !acts.some(a => a.reply_message)) {
+    messages.push({ type:'reply', date: cl.replied_at, body: cl.reply_message });
+  }
+
+  const html = `
+  <div class="chat-overlay" id="chat-overlay">
+    <div class="chat-modal">
+      <div class="chat-modal-header">
+        <div>
+          <div class="chat-modal-title">${campName}</div>
+          <div class="chat-modal-sub">${sentCount} email${sentCount!==1?'s':''} enviado${sentCount!==1?'s':''} · Status: ${cl?.status||'—'} · Seq: ${cl?.current_sequence||'—'}</div>
+        </div>
+        <button class="close-btn" id="chat-close-btn">✕</button>
+      </div>
+      <div class="chat-messages">
+        ${messages.length ? messages.map(m => {
+          if (m.type === 'sent') return `
+          <div class="chat-bubble-wrap sent">
+            <div class="chat-bubble sent">${m.body ? m.body.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '(sin cuerpo)'}</div>
+            <div class="chat-meta">Seq ${m.seq} · ${m.date ? fmtDate(m.date) : ''}${m.opens>0 ? ` · 👁 ${m.opens} apertura${m.opens!==1?'s':''}` : ''}${m.clicked ? ' · 🔗 Clic' : ''}</div>
+          </div>`;
+          else return `
+          <div class="chat-bubble-wrap reply">
+            <div class="chat-bubble reply">${(m.body||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+            <div class="chat-meta">↩ Respuesta · ${m.date ? fmtDate(m.date) : ''}</div>
+          </div>`;
+        }).join('') : '<div style="color:var(--text2);font-size:13px;text-align:center;padding:20px">No hay emails registrados aún</div>'}
+      </div>
+    </div>
   </div>`;
+
+  document.getElementById('chat-modal-root').innerHTML = html;
+  document.getElementById('chat-close-btn').addEventListener('click', () => document.getElementById('chat-modal-root').innerHTML = '');
+  document.getElementById('chat-overlay').addEventListener('click', e => { if (e.target.id==='chat-overlay') document.getElementById('chat-modal-root').innerHTML = ''; });
 }
 
 // ─── Import Modal ──────────────────────────────────────────
@@ -1391,6 +1447,13 @@ function bindApp() {
   document.getElementById('nota-save-btn')?.addEventListener('click', saveNote);
   document.querySelectorAll('.nota-delete').forEach(btn => {
     btn.addEventListener('click', () => deleteNote(btn.dataset.notaId));
+  });
+
+  document.querySelectorAll('.campaign-card[data-camp-name]').forEach(card => {
+    card.addEventListener('click', () => {
+      const name = decodeURIComponent(card.dataset.campName);
+      openChatModal(name, state.drawerData);
+    });
   });
 }
 
