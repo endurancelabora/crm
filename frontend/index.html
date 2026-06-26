@@ -1,0 +1,2358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CRM Labora</title>
+  <style>
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #22263a; --border: #2e3349;
+      --text: #e8eaf0; --text2: #8b90a7; --accent: #5b6af0; --accent-light: #7b89f4;
+      --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --blue: #3b82f6;
+      --radius: 10px; --radius-sm: 6px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
+
+    .app { display: flex; min-height: 100vh; }
+    .sidebar { width: 220px; background: var(--bg2); border-right: 1px solid var(--border); padding: 24px 0; flex-shrink: 0; display: flex; flex-direction: column; }
+    .main { flex: 1; overflow: auto; }
+
+    .logo { padding: 0 20px 24px; font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+    .logo span { color: var(--accent-light); }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; cursor: pointer; color: var(--text2); transition: all 0.15s; font-size: 13.5px; }
+    .nav-item:hover { background: var(--bg3); color: var(--text); }
+    .nav-item.active { background: var(--bg3); color: var(--text); border-right: 2px solid var(--accent); }
+    .nav-icon { font-size: 16px; width: 18px; text-align: center; }
+
+    .page-header { padding: 28px 32px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .page-title { font-size: 20px; font-weight: 600; }
+    .page-subtitle { color: var(--text2); font-size: 13px; margin-top: 2px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; padding: 24px 32px; }
+    .stat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+    .stat-number { font-size: 28px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+    .stat-label { color: var(--text2); font-size: 12px; }
+    .stat-card.accent .stat-number { color: var(--accent-light); }
+    .stat-card.green .stat-number { color: var(--green); }
+    .stat-card.amber .stat-number { color: var(--amber); }
+    .stat-card.red .stat-number { color: var(--red); }
+
+    .filters { padding: 0 32px 20px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .filter-input { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; transition: border 0.15s; }
+    .filter-input:focus { border-color: var(--accent); }
+    .filter-input::placeholder { color: var(--text2); }
+    input.filter-input { width: 220px; }
+    select.filter-input { cursor: pointer; }
+
+    .btn { padding: 8px 16px; border-radius: var(--radius-sm); border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-light); }
+    .btn-ghost { background: var(--bg2); border: 1px solid var(--border); color: var(--text2); }
+    .btn-ghost:hover { color: var(--text); border-color: var(--text2); }
+    .btn-secondary { background: var(--bg3); border: 1px solid var(--accent); color: var(--accent-light); }
+    .btn-secondary:hover { background: var(--accent); color: #fff; }
+    .btn-green { background: #166534; color: var(--green); border: 1px solid #16a34a33; }
+    .btn-green:hover { background: #15803d33; }
+    .btn-blue { background: #1e3a5f; color: var(--blue); border: 1px solid #2563eb33; }
+    .btn-blue:hover { background: #1e40af33; }
+
+    .table-wrap { padding: 0 32px 32px; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th { text-align: left; padding: 10px 14px; color: var(--text2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); background: var(--bg2); position: relative; white-space: nowrap; overflow: hidden; }
+    .table th.sortable { cursor: pointer; user-select: none; }
+    .col-resizer { position: absolute; right: 0; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 1; }
+    .col-resizer:hover, .col-resizer.resizing { background: var(--accent); opacity: 0.7; }
+    .table.resizing { cursor: col-resize; user-select: none; }
+    .table th.sortable:hover { color: var(--text); }
+    .sort-icon { margin-left: 4px; font-style: normal; }
+    .table td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .table tr:hover td { background: var(--bg2); cursor: pointer; }
+    .table tr:last-child td { border-bottom: none; }
+
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+    .badge-green  { background: #14532d33; color: #4ade80; border: 1px solid #16a34a33; }
+    .badge-amber  { background: #78350f33; color: #fbbf24; border: 1px solid #d9770633; }
+    .badge-blue   { background: #1e3a5f33; color: #60a5fa; border: 1px solid #2563eb33; }
+    .badge-gray   { background: var(--bg3); color: var(--text2); border: 1px solid var(--border); }
+    .badge-red    { background: #450a0a33; color: #f87171; border: 1px solid #dc262633; }
+
+    .pagination { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px; border-top: 1px solid var(--border); }
+    .pagination-info { color: var(--text2); font-size: 13px; }
+    .pagination-btns { display: flex; gap: 6px; }
+    .page-btn { width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg2); color: var(--text2); cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+    .page-btn:hover { color: var(--text); }
+    .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* Drawer */
+    .drawer-overlay { position: fixed; inset: 0; background: #00000066; z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+    .drawer-overlay.open { opacity: 1; pointer-events: all; }
+    .drawer { position: fixed; right: 0; top: 0; bottom: 0; width: 620px; background: var(--bg2); border-left: 1px solid var(--border); z-index: 101; transform: translateX(100%); transition: transform 0.25s ease; overflow-y: auto; }
+    .drawer.open { transform: translateX(0); }
+    .drawer-header { padding: 24px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; }
+    .drawer-name { font-size: 18px; font-weight: 600; }
+    .drawer-email { color: var(--text2); font-size: 13px; margin-top: 3px; }
+    .close-btn { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 20px; padding: 4px; line-height: 1; }
+    .close-btn:hover { color: var(--text); }
+    .drawer-body { padding: 24px; }
+    .drawer-section { margin-bottom: 28px; }
+    .drawer-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text2); margin-bottom: 12px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .info-item label { font-size: 11px; color: var(--text2); display: block; margin-bottom: 3px; }
+    .info-item span { font-size: 13px; color: var(--text); }
+
+    .campaign-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 10px; }
+    .campaign-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .campaign-name { font-weight: 500; font-size: 13px; }
+    .campaign-msg { color: var(--text2); font-size: 12px; line-height: 1.5; margin-top: 8px; background: var(--bg2); border-radius: 4px; padding: 8px 10px; max-height: 80px; overflow-y: auto; }
+    .activity-row { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+    .activity-item { font-size: 11px; color: var(--text2); }
+    .activity-item span { color: var(--text); font-weight: 500; }
+
+    .nota-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .nota-text { font-size: 13px; line-height: 1.5; flex: 1; }
+    .nota-date { color: var(--text2); font-size: 11px; margin-top: 4px; }
+    .nota-delete { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 14px; padding: 2px; opacity: 0; transition: opacity 0.15s; }
+    .nota-card:hover .nota-delete { opacity: 1; }
+    .nota-delete:hover { color: var(--red); }
+    .nota-form { display: flex; gap: 8px; margin-top: 12px; }
+    .nota-input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; resize: none; min-height: 38px; }
+    .nota-input:focus { border-color: var(--accent); }
+    .nota-input::placeholder { color: var(--text2); }
+
+    /* Edit mode */
+    .edit-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; color: var(--text); font-size: 13px; outline: none; transition: border 0.15s; }
+    .edit-input:focus { border-color: var(--accent); }
+    .edit-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+    /* Login */
+    .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .login-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; width: 360px; }
+    .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .login-sub { color: var(--text2); font-size: 13px; margin-bottom: 28px; }
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 6px; font-weight: 500; }
+    .form-control { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; color: var(--text); font-size: 14px; outline: none; transition: border 0.15s; }
+    .form-control:focus { border-color: var(--accent); }
+    .btn-block { width: 100%; padding: 11px; font-size: 14px; }
+    .login-error { color: var(--red); font-size: 13px; margin-top: 10px; text-align: center; }
+
+    .empty { text-align: center; padding: 60px 20px; color: var(--text2); }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-text { font-size: 15px; margin-bottom: 6px; color: var(--text); }
+    .loading { text-align: center; padding: 40px; color: var(--text2); }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin-bottom: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Import Modal */
+    .modal-overlay { position: fixed; inset: 0; background: #00000088; z-index: 200; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); width: 560px; max-height: 85vh; overflow-y: auto; }
+    .modal.modal-lg { width: 720px; }
+    .suffix-chip { display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border-radius:20px; border:1px solid var(--border); background:var(--bg); font-size:12px; cursor:pointer; transition:all .15s; color:var(--text); }
+    .suffix-chip:hover { border-color:var(--accent); color:var(--accent); background:rgba(91,106,240,.08); }
+    .replace-preview-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:12px; }
+    .replace-preview-table th { text-align:left; padding:6px 10px; color:var(--text2); font-weight:500; border-bottom:1px solid var(--border); }
+    .replace-preview-table td { padding:6px 10px; border-bottom:1px solid var(--border2, #ffffff0a); vertical-align:middle; }
+    .replace-preview-table tr:last-child td { border-bottom:none; }
+    .arrow-cell { color:var(--text2); padding:0 4px; }
+    .old-val { color:var(--text2); text-decoration:line-through; }
+    .new-val { color:#4ade80; font-weight:500; }
+    .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .modal-title { font-size: 16px; font-weight: 600; }
+    .modal-body { padding: 24px; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+    .import-type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+    .import-type-btn { background: var(--bg3); border: 2px solid var(--border); border-radius: var(--radius-sm); padding: 12px 10px; cursor: pointer; text-align: center; transition: all 0.15s; color: var(--text2); font-size: 12px; }
+    .import-type-btn:hover { border-color: var(--accent); color: var(--text); }
+    .import-type-btn.selected { border-color: var(--accent); background: #5b6af011; color: var(--text); }
+    .import-type-icon { font-size: 22px; margin-bottom: 6px; }
+    .import-type-label { font-weight: 500; font-size: 12px; }
+
+    .file-drop { border: 2px dashed var(--border); border-radius: var(--radius-sm); padding: 32px; text-align: center; cursor: pointer; transition: border-color 0.15s; margin-bottom: 16px; }
+    .file-drop:hover, .file-drop.drag { border-color: var(--accent); }
+    .file-drop-icon { font-size: 32px; margin-bottom: 8px; }
+    .file-drop-text { color: var(--text2); font-size: 13px; }
+    .file-drop-text strong { color: var(--accent-light); cursor: pointer; }
+
+    .import-preview { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 16px; font-size: 12px; }
+    .import-preview-title { font-weight: 600; margin-bottom: 8px; color: var(--text); }
+    .import-preview-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+    .col-mapped { background: #14532d33; color: #4ade80; border: 1px solid #16a34a33; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+    .col-custom { background: #1e3a5f33; color: #60a5fa; border: 1px solid #2563eb33; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+    .import-progress { background: var(--bg3); border-radius: 4px; height: 6px; overflow: hidden; margin-bottom: 8px; }
+    .import-progress-bar { height: 100%; background: var(--accent); transition: width 0.3s; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+
+    /* Bulk action bar */
+    .bulk-bar { position: sticky; top: 0; z-index: 10; background: var(--accent); color: #fff; padding: 10px 32px; display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 500; border-bottom: 1px solid #7b89f4; }
+    .bulk-bar select { background: #ffffff22; border: 1px solid #ffffff55; color: #fff; border-radius: var(--radius-sm); padding: 5px 10px; font-size: 12px; cursor: pointer; }
+    .bulk-bar select option { background: var(--bg2); color: var(--text); }
+    .bulk-bar .btn-bulk { background: #ffffff22; border: 1px solid #ffffff55; color: #fff; padding: 5px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; font-weight: 500; }
+    .bulk-bar .btn-bulk:hover { background: #ffffff44; }
+    .bulk-bar .btn-bulk-clear { background: none; border: none; color: #ffffffaa; cursor: pointer; font-size: 18px; line-height: 1; margin-left: auto; }
+    .bulk-bar .btn-bulk-clear:hover { color: #fff; }
+    .row-check { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+    tr.selected td { background: #5b6af011 !important; }
+
+    /* Filter chips */
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .filter-chip { display: inline-flex; align-items: center; gap: 5px; background: #5b6af022; border: 1px solid var(--accent); color: var(--accent-light); border-radius: 20px; padding: 3px 10px; font-size: 12px; }
+    .filter-chip button { background: none; border: none; color: var(--accent-light); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px; opacity: 0.7; }
+    .filter-chip button:hover { opacity: 1; }
+
+    /* Dropdown panel */
+    .panel-wrap { position: relative; display: inline-block; }
+    .dropdown-panel { position: absolute; top: calc(100% + 6px); right: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; z-index: 50; min-width: 260px; box-shadow: 0 8px 24px #00000066; }
+    .dropdown-panel.hidden { display: none; }
+    .panel-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text2); margin-bottom: 12px; }
+
+    /* Column picker */
+    .col-check-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; cursor: pointer; color: var(--text); }
+    .col-check-item input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+    .col-check-item.required { color: var(--text2); cursor: default; }
+
+    /* Filter builder */
+    .filter-row { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; }
+    .filter-row select, .filter-row input { flex: 1; }
+    .op-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0; }
+    .op-toggle label { padding: 4px 9px; font-size: 11px; cursor: pointer; color: var(--text2); background: var(--bg3); white-space: nowrap; }
+    .op-toggle input[type=radio] { display: none; }
+    .op-toggle input[type=radio]:checked + label { background: var(--accent); color: #fff; }
+
+    /* Multi-select panel items */
+    .ms-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; cursor: pointer; color: var(--text); }
+    .ms-item input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+    .ms-trigger { display: inline-flex; align-items: center; gap: 6px; }
+    .ms-count { background: var(--accent); color: #fff; border-radius: 10px; padding: 1px 6px; font-size: 11px; font-weight: 600; }
+
+    /* Campaign rename / company edit */
+    .camp-edit-input { background: var(--bg); border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 5px 10px; color: var(--text); font-size: 13px; outline: none; width: 280px; }
+
+    /* Drag handle for column reorder */
+    .drag-handle { cursor: grab; color: var(--text2); font-size: 14px; padding: 0 4px; user-select: none; }
+    .drag-handle:active { cursor: grabbing; }
+    .col-check-item.drag-over { border-top: 2px solid var(--accent); }
+    .col-check-item[draggable="true"] { cursor: grab; }
+
+    /* Tags */
+    .tag-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 500; border: 1px solid transparent; }
+    .tag-remove { background: none; border: none; cursor: pointer; font-size: 12px; line-height: 1; padding: 0; margin-left: 2px; opacity: 0.6; }
+    .tag-remove:hover { opacity: 1; }
+    .tag-add-row { display: flex; gap: 6px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+    .color-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .tag-option { display: flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; }
+    .tag-option:hover { background: var(--bg3); }
+    .tag-manage-btn { font-size: 11px; color: var(--text2); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 0; margin-top: 6px; }
+    .tag-manage-btn:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONFIG & STATE
+// ═══════════════════════════════════════════════════════════
+const API_BASE = '';
+let API_KEY = localStorage.getItem('crm_api_key') || '';
+
+const COLUMNS = [
+  { key: 'contact',        label: 'Contact',       required: true },
+  { key: 'company',        label: 'Company' },
+  { key: 'job_title',      label: 'Job Title' },
+  { key: 'industry',       label: 'Industry' },
+  { key: 'city',           label: 'City' },
+  { key: 'state',          label: 'State' },
+  { key: 'phone',          label: 'Phone' },
+  { key: 'total_campaigns',label: 'Campaigns' },
+  { key: 'category',       label: 'Category' },
+  { key: 'tags',           label: 'Tags' },
+  { key: 'last_activity',  label: 'Last Activity' },
+  { key: 'email_col',      label: 'Email' },
+  { key: 'flags',          label: 'Flags' },
+];
+const DEFAULT_COLS = new Set(['contact','company','total_campaigns','category','tags','last_activity','email_col','flags']);
+function loadVisibleCols() {
+  try { return new Set(JSON.parse(localStorage.getItem('crm_visible_cols')) || [...DEFAULT_COLS]); }
+  catch(_) { return new Set(DEFAULT_COLS); }
+}
+function saveVisibleCols(set) { localStorage.setItem('crm_visible_cols', JSON.stringify([...set])); }
+
+function loadColOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('crm_col_order'));
+    if (saved?.length) {
+      const map = Object.fromEntries(COLUMNS.map(c => [c.key, c]));
+      const ordered = saved.map(k => map[k]).filter(Boolean);
+      COLUMNS.forEach(c => { if (!saved.includes(c.key)) ordered.push(c); });
+      return ordered;
+    }
+  } catch(_) {}
+  return [...COLUMNS];
+}
+function saveColOrder(arr) { localStorage.setItem('crm_col_order', JSON.stringify(arr.map(c => c.key))); }
+
+const FILTER_FIELDS = [
+  { key: 'company',    label: 'Company' },
+  { key: 'industry',   label: 'Industry' },
+  { key: 'city',       label: 'City' },
+  { key: 'state',      label: 'State' },
+  { key: 'country',    label: 'Country' },
+  { key: 'source',     label: 'Source' },
+  { key: 'job_title',  label: 'Job Title' },
+  { key: 'department', label: 'Department' },
+  { key: 'phone',      label: 'Phone' },
+  { key: 'tag',        label: 'Tag' },
+];
+
+const TAG_COLORS = ['#5b6af0','#22c55e','#f59e0b','#ef4444','#3b82f6','#a855f7','#ec4899','#14b8a6','#f97316','#64748b'];
+
+let state = {
+  view: 'contacts',
+  contacts: [], total: 0, page: 1,
+  search: '', campaign: '', category: '',
+  selectedCampaigns: [], selectedCategories: [],
+  campaigns: [], stats: null, tags: [],
+  drawerEmail: null, drawerData: null, drawerTags: [],
+  drawerEditing: false,
+  sort_by: 'email', sort_dir: 'ASC', limit: 50,
+  activeFilters: [],
+  visibleCols: loadVisibleCols(),
+  selectedEmails: new Set(),
+  customFieldKeys: [],
+  colOrder: loadColOrder(),
+  companies: [], compTotal: 0, compPage: 1, compLimit: 20,
+  compSearch: '', compSort: 'company', compDir: 'ASC',
+  selectedCompanies: new Set(),
+  campSearch: '', campSort: 'campaign_name', campDir: 'ASC',
+};
+
+// Sort icon helper
+function sortIcon(col) {
+  if (state.sort_by !== col) return '<i class="sort-icon" style="color:var(--border)">⇅</i>';
+  return state.sort_dir === 'ASC'
+    ? '<i class="sort-icon" style="color:var(--accent-light)">↑</i>'
+    : '<i class="sort-icon" style="color:var(--accent-light)">↓</i>';
+}
+
+function toggleSort(col) {
+  if (state.sort_by === col) {
+    state.sort_dir = state.sort_dir === 'ASC' ? 'DESC' : 'ASC';
+  } else {
+    state.sort_by = col;
+    state.sort_dir = 'ASC';
+  }
+  state.page = 1;
+  loadContacts();
+}
+
+// Column auto-mapping dictionary
+const COLUMN_MAP = {
+  'correo electronico': 'email', 'lead email': 'email', 'email': 'email', 'business email': 'email',
+  'nombre': 'first_name', 'first name': 'first_name', 'first_name': 'first_name',
+  'apellido': 'last_name', 'last name': 'last_name', 'last_name': 'last_name',
+  'empresa': 'company', 'company name': 'company', 'company': 'company',
+  'telefono': 'phone', 'phone number': 'phone', 'phone': 'phone',
+  'puesto': 'job_title', 'job_title': 'job_title', 'job title': 'job_title', 'job': 'job_title',
+  'departamento': 'department', 'department': 'department',
+  'industria': 'industry', 'industry': 'industry',
+  'municipio': 'city', 'city': 'city',
+  'estado': 'state', 'state': 'state',
+  'pais': 'country', 'country': 'country',
+  'url compañía': 'company_url', 'company_url': 'company_url', 'website': 'company_url',
+  'linkedin personal': 'linkedin_personal', 'linkedin profile': 'linkedin_personal', 'linkedin_profile': 'linkedin_personal',
+  'linkedin empresa': 'linkedin_company',
+  'fuente': 'source', 'source': 'source',
+  'lead category': 'lead_category', 'category': 'lead_category', 'lead_category': 'lead_category',
+  'elv result': 'elv_result', 'elv_result': 'elv_result',
+  'elv esp': 'elv_esp', 'elv_esp': 'elv_esp',
+  // Campaign leads
+  'campaña': 'campaign_name', 'campaign': 'campaign_name', 'campaign_name': 'campaign_name',
+  'status': 'status', 'esp type': 'esp_type', 'esp_type': 'esp_type',
+  'current sequence number': 'current_sequence', 'current_sequence_number': 'current_sequence',
+  'location': 'location', 'company city': 'company_city', 'company_city': 'company_city',
+  // Campaign activity
+  'lead name': 'lead_name', 'lead_name': 'lead_name',
+  'sequence number': 'sequence_number', 'sequence_number': 'sequence_number',
+  'sent time': 'sent_at', 'sent_at': 'sent_at',
+  'opened time': 'opened_at', 'opened_at': 'opened_at',
+  'clicked time': 'clicked_at', 'clicked_at': 'clicked_at',
+  'replied time': 'replied_at', 'replied_at': 'replied_at',
+  'reply message': 'reply_message', 'reply_message': 'reply_message',
+  'open count': 'open_count', 'open_count': 'open_count',
+  'click count': 'click_count', 'click_count': 'click_count',
+  'sent email': 'sent_email_body', 'sent_email_body': 'sent_email_body',
+  'is unsubscribed': 'is_unsubscribed', 'is_unsubscribed': 'is_unsubscribed',
+};
+
+const KNOWN_FIELDS = {
+  contacts: new Set(['email','first_name','last_name','company','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp']),
+  'campaign-leads': new Set(['email','campaign_name','campaign_id','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal']),
+  'campaign-activity': new Set(['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed']),
+};
+
+// ═══════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(API_BASE + path, {
+    ...opts,
+    headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json', ...(opts.headers || {}) }
+  });
+  if (res.status === 401) { API_KEY = ''; localStorage.removeItem('crm_api_key'); render(); return null; }
+  return res.json();
+}
+
+function badge(cat) {
+  if (!cat) return '';
+  const map = { 'Interested': 'badge-green', 'Meeting Booked': 'badge-green', 'Replied': 'badge-blue', 'Respondió': 'badge-blue', 'Out of Office': 'badge-amber', 'Not Interested': 'badge-red' };
+  const cls = Object.entries(map).find(([k]) => cat.includes(k))?.[1] || 'badge-gray';
+  return `<span class="badge ${cls}">${cat}</span>`;
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function fmtName(c) {
+  const n = [c.first_name, c.last_name].filter(Boolean).join(' ');
+  return n || c.email.split('@')[0];
+}
+
+// CSV parser
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) return [];
+  const headers = parseCSVRow(lines[0]);
+  return lines.slice(1).map(line => {
+    const vals = parseCSVRow(line);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
+    return obj;
+  }).filter(r => Object.values(r).some(v => v));
+}
+
+function parseCSVRow(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+    else cur += c;
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function mapColumns(rows) {
+  return rows.map(row => {
+    const mapped = {};
+    for (const [k, v] of Object.entries(row)) {
+      const norm = k.toLowerCase().trim();
+      mapped[COLUMN_MAP[norm] || k] = v;
+    }
+    return mapped;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════
+function render() {
+  const app = document.getElementById('app');
+  if (!API_KEY) { app.innerHTML = renderLogin(); bindLogin(); return; }
+  app.innerHTML = renderApp();
+  bindApp();
+}
+
+function renderLogin() {
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-title">CRM <span style="color:var(--accent-light)">Labora</span></div>
+      <div class="login-sub">Ingresa tu clave de acceso para continuar</div>
+      <div class="form-group">
+        <label class="form-label">Clave de acceso</label>
+        <input class="form-control" type="password" id="login-key" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary btn-block" id="login-btn">Entrar</button>
+      <div class="login-error" id="login-error" style="display:none">Clave incorrecta</div>
+    </div>
+  </div>`;
+}
+
+function bindLogin() {
+  const btn = document.getElementById('login-btn');
+  const input = document.getElementById('login-key');
+  async function tryLogin() {
+    const key = input.value.trim();
+    if (!key) return;
+    API_KEY = key;
+    const data = await apiFetch('/api/stats');
+    if (data) { localStorage.setItem('crm_api_key', key); loadAll(); }
+    else { API_KEY = ''; document.getElementById('login-error').style.display = 'block'; }
+  }
+  btn.addEventListener('click', tryLogin);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+}
+
+function renderApp() {
+  return `
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">CRM <span>Labora</span></div>
+      <div class="nav-item ${state.view==='contacts'?'active':''}" data-view="contacts"><span class="nav-icon">👥</span> Contacts</div>
+      <div class="nav-item ${state.view==='companies'?'active':''}" data-view="companies"><span class="nav-icon">🏢</span> Companies</div>
+      <div class="nav-item ${state.view==='campaigns'?'active':''}" data-view="campaigns"><span class="nav-icon">📣</span> Campaigns</div>
+      <div class="nav-item ${state.view==='admin'?'active':''}" data-view="admin" style="margin-top:auto"><span class="nav-icon">⚙</span> Admin</div>
+      <div style="margin-top:auto; padding: 16px 20px;">
+        <div style="color:var(--text2);font-size:11px;margin-bottom:6px">Active session</div>
+        <button class="btn btn-ghost" id="logout-btn" style="width:100%;font-size:12px">Sign out</button>
+      </div>
+    </aside>
+    <div class="main" id="main-content">
+      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
+    </div>
+  </div>
+  ${renderDrawer()}
+  ${renderImportModal()}
+  ${renderCleanupModal()}`;
+}
+
+// ─── Contacts view ─────────────────────────────────────────
+function renderTagPill(t, removable = false, email = '') {
+  const style = `background:${t.color}22;color:${t.color};border-color:${t.color}55`;
+  const rm = removable ? `<button class="tag-remove" data-email="${email}" data-tid="${t.id}" title="Remove tag">×</button>` : '';
+  return `<span class="tag-pill" style="${style}">${t.name}${rm}</span>`;
+}
+
+function renderContacts() {
+  const totalPages = Math.ceil(state.total / state.limit);
+  const start = (state.page - 1) * state.limit + 1;
+  const end = Math.min(state.page * state.limit, state.total);
+  const vc = state.visibleCols;
+  const colSpan = COLUMNS.filter(c => vc.has(c.key)).length + 1;
+  const sel = state.selectedEmails;
+  const allSelected = state.contacts.length > 0 && state.contacts.every(c => sel.has(c.email));
+
+  const bulkBar = sel.size > 0 ? `
+    <div class="bulk-bar">
+      <span>${sel.size} contact${sel.size>1?'s':''} selected</span>
+      <select id="bulk-tag-select">
+        <option value="">Add tag...</option>
+        ${state.tags.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+      </select>
+      <button class="btn-bulk" id="bulk-apply-tag">Apply</button>
+      <button class="btn-bulk-clear" id="bulk-clear-sel" title="Clear selection">✕</button>
+    </div>` : '';
+
+  const filterChips = state.activeFilters.map((f,i) => {
+    const opLabel = f.op==='exact' ? '=' : f.op==='empty' ? 'is empty' : f.op==='not_empty' ? 'has value' : '~';
+    const valPart = (f.op==='empty'||f.op==='not_empty') ? '' : ` <strong>${f.value}</strong>`;
+    return `<span class="filter-chip">${f.field} <em>${opLabel}</em>${valPart}<button data-fi="${i}">×</button></span>`;
+  }
+  ).join('');
+
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Contacts</div>
+      <div class="page-subtitle">${state.total.toLocaleString()} contacts found</div>
+    </div>
+    <div class="header-actions">
+      <div class="panel-wrap">
+        <button class="btn btn-ghost" id="filter-btn">⊕ Filter${state.activeFilters.length ? ` (${state.activeFilters.length})` : ''}</button>
+        <div class="dropdown-panel hidden" id="filter-panel" style="min-width:300px">
+          <div class="panel-title">Add Filter</div>
+          <div class="filter-row">
+            <select class="filter-input" id="filter-field" style="flex:1.2">
+              ${FILTER_FIELDS.map(f => `<option value="${f.key}">${f.label}</option>`).join('')}
+              ${state.customFieldKeys.length ? `<optgroup label="── Custom fields ──">
+                ${state.customFieldKeys.map(k => `<option value="cf:${k}">${k}</option>`).join('')}
+              </optgroup>` : ''}
+            </select>
+            <input class="filter-input" id="filter-value" placeholder="value..." style="flex:1.5">
+          </div>
+          <div class="filter-row" style="margin-bottom:10px;flex-wrap:wrap;gap:6px">
+            <div class="op-toggle">
+              <input type="radio" name="filter-op" id="op-contains" value="contains" checked>
+              <label for="op-contains">Contains</label>
+              <input type="radio" name="filter-op" id="op-exact" value="exact">
+              <label for="op-exact">Exact</label>
+              <input type="radio" name="filter-op" id="op-empty" value="empty">
+              <label for="op-empty">Is empty</label>
+              <input type="radio" name="filter-op" id="op-not-empty" value="not_empty">
+              <label for="op-not-empty">Has value</label>
+            </div>
+            <button class="btn btn-primary" id="filter-add-btn" style="padding:6px 14px;margin-left:auto">+ Add</button>
+          </div>
+          ${state.activeFilters.length ? `<div style="border-top:1px solid var(--border);padding-top:8px" class="filter-chips">${filterChips}</div>` : ''}
+        </div>
+      </div>
+      <div class="panel-wrap">
+        <button class="btn btn-ghost" id="columns-btn">⊞ Columns</button>
+        <div class="dropdown-panel hidden" id="columns-panel" style="min-width:220px">
+          <div class="panel-title">Visible Columns — drag to reorder</div>
+          <div id="col-order-list">
+          ${state.colOrder.map(c => `
+          <div class="col-check-item${c.required?' required':''}" draggable="${!c.required}" data-col-key="${c.key}" style="display:flex;gap:6px;align-items:center">
+            <span class="drag-handle" style="${c.required?'opacity:0.3':''}">⠿</span>
+            <input type="checkbox" data-col="${c.key}" ${vc.has(c.key)?'checked':''} ${c.required?'disabled':''}>
+            <span style="flex:1">${c.label}</span>
+          </div>`).join('')}
+          ${state.customFieldKeys.length ? `
+          <div style="padding:6px 0 2px;font-size:11px;color:var(--text2);border-top:1px solid var(--border);margin-top:6px">Custom fields</div>
+          ${state.customFieldKeys.map(k => `
+          <div class="col-check-item" style="display:flex;gap:6px;align-items:center">
+            <span class="drag-handle" style="opacity:0.2">⠿</span>
+            <input type="checkbox" data-col="cf:${k}" ${vc.has('cf:'+k)?'checked':''}>
+            <span style="flex:1;font-family:monospace;font-size:12px">${k}</span>
+          </div>`).join('')}` : ''}
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-blue" id="import-btn">⬆ Import CSV</button>
+      <button class="btn btn-green" id="export-btn">⬇ Export CSV</button>
+    </div>
+  </div>
+  ${renderStats()}
+  <div class="filters">
+    <input class="filter-input" type="text" id="search-input" placeholder="🔍  Search by name, email or company..." value="${state.search}">
+    <div class="panel-wrap">
+      <button class="btn btn-ghost ms-trigger" id="category-btn">
+        Category ${state.selectedCategories.length ? `<span class="ms-count">${state.selectedCategories.length}</span>` : '▾'}
+      </button>
+      <div class="dropdown-panel hidden" id="category-panel" style="min-width:200px;left:0;right:auto">
+        <div class="panel-title">Categories</div>
+        ${['Interested','Meeting Booked','Replied','Opened','Out of Office','Not Interested'].map(cat => `
+        <label class="ms-item">
+          <input type="checkbox" class="cat-check" value="${cat}" ${state.selectedCategories.includes(cat)?'checked':''}>
+          ${cat}
+        </label>`).join('')}
+      </div>
+    </div>
+    <div class="panel-wrap">
+      <button class="btn btn-ghost ms-trigger" id="campaign-btn">
+        Campaign ${state.selectedCampaigns.length ? `<span class="ms-count">${state.selectedCampaigns.length}</span>` : '▾'}
+      </button>
+      <div class="dropdown-panel hidden" id="campaign-panel" style="min-width:280px;left:0;right:auto;max-height:320px;overflow-y:auto">
+        <div class="panel-title">Campaigns</div>
+        ${(state.campaigns||[]).map(c => `
+        <label class="ms-item">
+          <input type="checkbox" class="camp-check" value="${c.campaign_name}" ${state.selectedCampaigns.includes(c.campaign_name)?'checked':''}>
+          <span style="flex:1">${c.campaign_name}</span>
+          <span style="color:var(--text2);font-size:11px">${c.interested} int.</span>
+        </label>`).join('')}
+      </div>
+    </div>
+    <button class="btn btn-ghost" id="clear-btn">Clear</button>
+    ${state.activeFilters.length ? `<div class="filter-chips">${filterChips}</div>` : ''}
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <span style="color:var(--text2);font-size:12px">Show</span>
+      <select class="filter-input" id="limit-select" style="width:80px">
+        ${[10,20,50,100,200,500].map(n => `<option value="${n}" ${state.limit===n?'selected':''}>${n}</option>`).join('')}
+      </select>
+      <span style="color:var(--text2);font-size:12px">per page</span>
+    </div>
+  </div>
+  ${bulkBar}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr>
+        <th style="width:36px"><input type="checkbox" class="row-check" id="select-all" ${allSelected?'checked':''}></th>
+        ${state.colOrder.filter(col => vc.has(col.key)).map(col => {
+          const sortMap = {contact:'first_name',company:'company',industry:'industry',city:'city',total_campaigns:'total_campaigns',last_activity:'last_activity',email_col:'email'};
+          const sk = sortMap[col.key];
+          return sk ? `<th class="sortable" data-sort="${sk}">${col.label} ${sortIcon(sk)}</th>`
+                    : `<th>${col.label}</th>`;
+        }).join('')}
+        ${state.customFieldKeys.filter(k => vc.has('cf:'+k)).map(k =>
+          `<th style="font-family:monospace;font-size:12px">${k}</th>`
+        ).join('')}
+      </tr></thead>
+      <tbody>
+        ${state.contacts.length ? state.contacts.map(c => {
+          const tags = c.tags || [];
+          const stdCells = state.colOrder.filter(col => vc.has(col.key)).map(col => {
+            switch(col.key) {
+              case 'contact':        return `<td><div style="font-weight:500">${fmtName(c)}</div><div style="color:var(--text2);font-size:12px">${c.email}</div></td>`;
+              case 'company':        return `<td style="color:var(--text2)">${c.company||'—'}</td>`;
+              case 'job_title':      return `<td style="color:var(--text2)">${c.job_title||'—'}</td>`;
+              case 'industry':       return `<td style="color:var(--text2)">${c.industry||'—'}</td>`;
+              case 'city':           return `<td style="color:var(--text2)">${c.city||'—'}</td>`;
+              case 'state':          return `<td style="color:var(--text2)">${c.state||'—'}</td>`;
+              case 'phone':          return `<td style="color:var(--text2)">${c.phone||'—'}</td>`;
+              case 'total_campaigns':return `<td style="color:var(--text2)">${c.total_campaigns||0}</td>`;
+              case 'category':       return `<td>${c.categories ? c.categories.split(', ').map(badge).join(' ') : '—'}</td>`;
+              case 'tags':           return `<td>${tags.length ? tags.map(t=>renderTagPill(t)).join(' ') : '—'}</td>`;
+              case 'last_activity':  return `<td style="color:var(--text2)">${fmtDate(c.last_activity)}</td>`;
+              case 'email_col':      return `<td style="color:var(--text2);font-size:12px">${c.email}</td>`;
+              case 'flags':          return `<td>${c.no_contact?'<span class="badge badge-red">No contact</span>':''}${c.email_bounced?'<span class="badge badge-amber">Bounced</span>':''}</td>`;
+              default: return '<td>—</td>';
+            }
+          }).join('');
+          const cfCells = state.customFieldKeys.filter(k => vc.has('cf:'+k)).map(k =>
+            `<td style="color:var(--text2);font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(c.custom_fields?.[k]||'').replace(/"/g,'&quot;')}">${c.custom_fields?.[k]||'—'}</td>`
+          ).join('');
+          return `<tr data-email="${c.email}" class="${sel.has(c.email)?'selected':''}">
+            <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check" data-email="${c.email}" ${sel.has(c.email)?'checked':''}></td>
+            ${stdCells}${cfCells}</tr>`;
+        }).join('') : `<tr><td colspan="${colSpan}"><div class="empty"><div class="empty-icon">🔍</div><div class="empty-text">No results</div><div>Try changing the filters</div></div></td></tr>`}
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination">
+    <div class="pagination-info">${state.total > 0 ? `Showing ${start}–${end} of ${state.total.toLocaleString()}` : 'No contacts'}</div>
+    <div class="pagination-btns">
+      ${renderPageBtns(state.page, totalPages, 'page-btn')}
+    </div>
+  </div>`;
+}
+
+function renderStats() {
+  if (!state.stats) return '';
+  const s = state.stats;
+  return `
+  <div class="stats-grid">
+    <div class="stat-card accent"><div class="stat-number">${parseInt(s.total_contacts||0).toLocaleString()}</div><div class="stat-label">Total contacts</div></div>
+    <div class="stat-card green"><div class="stat-number">${parseInt(s.total_interested||0).toLocaleString()}</div><div class="stat-label">Interested</div></div>
+    <div class="stat-card"><div class="stat-number">${parseInt(s.total_campaigns||0).toLocaleString()}</div><div class="stat-label">Campaigns</div></div>
+    <div class="stat-card amber"><div class="stat-number">${parseInt(s.no_contact||0).toLocaleString()}</div><div class="stat-label">No contact</div></div>
+    <div class="stat-card red"><div class="stat-number">${parseInt(s.bounced||0).toLocaleString()}</div><div class="stat-label">Bounced</div></div>
+  </div>`;
+}
+
+// ─── Campaigns view ────────────────────────────────────────
+function renderAdmin() {
+  return `
+  <div class="toolbar">
+    <div style="font-size:18px;font-weight:700">Admin / Settings</div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px;max-width:820px;margin-top:8px">
+
+    <!-- Encoding fix card -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px">
+      <div style="display:flex;align-items:flex-start;gap:16px">
+        <div style="font-size:32px;line-height:1">🔤</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Reparar encoding de texto</div>
+          <div style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:16px">
+            Corrige caracteres rotos causados por un problema de codificación al importar datos
+            (ej. <code style="background:rgba(255,255,255,.07);padding:1px 6px;border-radius:3px">GarcÃ­a</code>
+            → <code style="background:rgba(255,255,255,.07);padding:1px 6px;border-radius:3px">García</code>).
+            Afecta columnas de texto en contactos, actividad de campaña y leads.
+            <strong style="color:var(--text)">Haz siempre Preview antes de aplicar.</strong>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-bottom:16px">
+            <button class="btn btn-secondary" id="encoding-preview-btn">🔍 Preview</button>
+            <button class="btn btn-green" id="encoding-apply-btn" disabled>✅ Aplicar corrección</button>
+          </div>
+
+          <div id="encoding-result-area"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Company merge card -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px">
+      <div style="display:flex;align-items:flex-start;gap:16px">
+        <div style="font-size:32px;line-height:1">🔀</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Fusionar custom field → Company</div>
+          <div style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:16px">
+            Consolida un custom field en la columna estándar <strong style="color:var(--text)">company</strong>.<br>
+            <strong style="color:#fbbf24">Paso 1:</strong> si company y el custom field tienen el mismo valor → elimina el custom field.<br>
+            <strong style="color:#4ade80">Paso 2:</strong> si company está vacío y el custom field tiene valor → copia a company y elimina el custom field.
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+            <label style="font-size:13px;color:var(--text2);white-space:nowrap">Nombre del custom field:</label>
+            <input class="filter-input" id="merge-cf-key" value="nombre de empresa" style="width:220px;font-family:monospace">
+          </div>
+          <div style="display:flex;gap:10px;margin-bottom:16px">
+            <button class="btn btn-secondary" id="merge-preview-btn">🔍 Preview</button>
+            <button class="btn btn-secondary" id="merge-export-btn">⬇ Exportar conflictos</button>
+            <button class="btn btn-green" id="merge-apply-btn" disabled>✅ Aplicar</button>
+          </div>
+          <div id="merge-result-area"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>`;
+}
+
+function renderCompanies() {
+  const sd = col => col === state.compSort ? (state.compDir === 'ASC' ? ' ▲' : ' ▼') : ' ⇅';
+  const sortTh = (col, label) =>
+    `<th class="sortable" data-comp-sort="${col}" style="cursor:pointer;user-select:none">${label}${sd(col)}</th>`;
+  const sel = state.selectedCompanies;
+  const allSelected = state.companies.length > 0 && state.companies.every(c => sel.has(c.company));
+  const totalPages = Math.ceil(state.compTotal / state.compLimit);
+  const start = (state.compPage - 1) * state.compLimit + 1;
+  const end = Math.min(state.compPage * state.compLimit, state.compTotal);
+
+  const bulkBar = sel.size > 0 ? `
+    <div class="bulk-bar">
+      <span>${sel.size} empresa${sel.size!==1?'s':''} seleccionada${sel.size!==1?'s':''}</span>
+      <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+        <select class="filter-input" id="comp-bulk-tag-select" style="width:180px">
+          <option value="">— Aplicar etiqueta —</option>
+          ${(state.tags||[]).map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+        </select>
+        <button class="btn btn-green" id="comp-bulk-tag-btn">Aplicar</button>
+        <button class="btn btn-ghost" id="comp-bulk-clear-btn">✕ Limpiar</button>
+      </div>
+    </div>` : '';
+
+  return `
+  <div class="toolbar" style="padding-top:24px">
+    <div style="font-size:18px;font-weight:700">Companies
+      <span style="font-size:13px;color:var(--text2);font-weight:400;margin-left:6px">${state.compTotal.toLocaleString()} empresas</span>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <input class="filter-input" type="text" id="comp-search" placeholder="🔍  Search company..." value="${state.compSearch}" style="width:280px">
+      <button class="btn btn-secondary" id="cleanup-open-btn">🧹 Cleanup</button>
+    </div>
+  </div>
+  ${bulkBar}
+  <div class="table-wrap" style="margin-top:16px">
+    <table class="table">
+      <thead><tr>
+        <th style="width:36px"><input type="checkbox" id="comp-select-all" ${allSelected?'checked':''}></th>
+        ${sortTh('company','Company')}
+        ${sortTh('total_contacts','Contacts')}
+        ${sortTh('industry','Industries')}
+        ${sortTh('city','Cities')}
+        <th>Actions</th>
+      </tr></thead>
+      <tbody>
+        ${state.companies.length ? state.companies.map(co => {
+          const enc = encodeURIComponent(co.company);
+          return `<tr class="${sel.has(co.company)?'selected':''}">
+            <td onclick="event.stopPropagation()"><input type="checkbox" class="comp-row-check" data-company="${enc}" ${sel.has(co.company)?'checked':''}></td>
+            <td>
+              <div class="camp-name-view" data-comp="${enc}" style="display:flex;align-items:center;gap:8px">
+                <span style="font-weight:500">${co.company}</span>
+              </div>
+              <div class="comp-name-edit" data-comp="${enc}" style="display:none;align-items:center;gap:6px">
+                <input class="camp-edit-input comp-edit-input" value="${co.company.replace(/"/g,'&quot;')}" data-original="${enc}" style="width:280px">
+                <button class="btn btn-green comp-save-btn" style="padding:4px 10px">Save</button>
+                <button class="btn btn-ghost comp-cancel-btn" style="padding:4px 10px">Cancel</button>
+              </div>
+            </td>
+            <td style="color:var(--text2)">${co.total_contacts}</td>
+            <td style="color:var(--text2);font-size:12px;max-width:220px;white-space:normal">${co.industry||'—'}</td>
+            <td style="color:var(--text2);font-size:12px;max-width:180px;white-space:normal">${co.city||'—'}</td>
+            <td>
+              <button class="btn btn-ghost comp-rename-btn" data-comp="${enc}" style="padding:4px 10px;font-size:12px">✏ Rename</button>
+            </td>
+          </tr>`;
+        }).join('') : `<tr><td colspan="6"><div class="empty"><div class="empty-icon">🏢</div><div class="empty-text">No companies found</div></div></td></tr>`}
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination">
+    <div class="pagination-info">${state.compTotal > 0 ? `Mostrando ${start}–${end} de ${state.compTotal.toLocaleString()}` : 'Sin resultados'}</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="color:var(--text2);font-size:12px">Mostrar</span>
+      <select class="filter-input" id="comp-limit-select" style="width:80px">
+        ${[10,20,50,100,200].map(n=>`<option value="${n}" ${state.compLimit===n?'selected':''}>${n}</option>`).join('')}
+      </select>
+    </div>
+    <div class="pagination-btns">
+      ${renderPageBtns(state.compPage, totalPages, 'page-btn comp-page-btn')}
+    </div>
+  </div>`;
+}
+
+function renderCampaigns() {
+  const sd = col => col === state.campSort ? (state.campDir === 'ASC' ? ' ▲' : ' ▼') : ' ⇅';
+  const sortTh = (col, label) =>
+    `<th class="sortable" data-camp-sort="${col}" style="cursor:pointer;user-select:none">${label}${sd(col)}</th>`;
+  return `
+  <div class="toolbar">
+    <div style="font-size:18px;font-weight:700">Campaigns <span style="font-size:13px;color:var(--text2);font-weight:400">${(state.campaigns||[]).length} campaigns</span></div>
+    <div style="margin-left:auto">
+      <input class="filter-input" type="text" id="camp-search" placeholder="🔍  Search campaign..." value="${state.campSearch}" style="width:280px">
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr>
+        ${sortTh('campaign_name','Campaign')}
+        ${sortTh('total_contacts','Total contacts')}
+        ${sortTh('interested','Interested')}
+        <th>Actions</th>
+      </tr></thead>
+      <tbody>
+        ${(state.campaigns||[]).length ? (state.campaigns||[]).map(c => `
+        <tr data-camp="${encodeURIComponent(c.campaign_name)}">
+          <td>
+            <div class="camp-name-view" data-camp="${encodeURIComponent(c.campaign_name)}">
+              <span style="font-weight:500">${c.campaign_name}</span>
+              <button class="btn btn-ghost camp-rename-btn" data-camp="${encodeURIComponent(c.campaign_name)}" style="font-size:11px;padding:3px 8px;margin-left:8px">✏ Rename</button>
+            </div>
+            <div class="camp-name-edit" data-camp="${encodeURIComponent(c.campaign_name)}" style="display:none;align-items:center;gap:6px">
+              <input class="camp-edit-input" value="${c.campaign_name.replace(/"/g,'&quot;')}" data-original="${encodeURIComponent(c.campaign_name)}">
+              <button class="btn btn-primary camp-save-btn" style="font-size:11px;padding:4px 10px">Save</button>
+              <button class="btn btn-ghost camp-cancel-btn" style="font-size:11px;padding:4px 10px">Cancel</button>
+            </div>
+          </td>
+          <td style="color:var(--text2)">${c.total_contacts}</td>
+          <td>${parseInt(c.interested)>0 ? `<span class="badge badge-green">${c.interested} interested</span>` : '<span class="badge badge-gray">0</span>'}</td>
+          <td><button class="btn btn-green btn-export-camp" data-campaign="${c.campaign_name}" data-cat="Interested">⬇ Export interested</button></td>
+        </tr>`).join('') : `<tr><td colspan="4"><div class="empty"><div class="empty-icon">📣</div><div class="empty-text">No campaigns yet</div></div></td></tr>`}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// ─── Drawer ────────────────────────────────────────────────
+function renderDrawer() {
+  const d = state.drawerData;
+  const open = !!state.drawerEmail;
+  const edit = state.drawerEditing;
+  const c = d?.contact || {};
+
+  function field(label, key, full = false) {
+    return `<div class="info-item" ${full ? 'style="grid-column:span 2"' : ''}>
+      <label>${label}</label>
+      ${edit
+        ? `<input class="edit-input" data-field="${key}" value="${(c[key]||'').replace(/"/g,'&quot;')}">`
+        : `<span>${c[key] || '—'}</span>`}
+    </div>`;
+  }
+
+  return `
+  <div class="drawer-overlay ${open?'open':''}" id="drawer-overlay"></div>
+  <div class="drawer ${open?'open':''}" id="drawer">
+    ${d ? `
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-name">${fmtName(c)}</div>
+        <div class="drawer-email">${c.email}</div>
+        ${c.no_contact ? '<span class="badge badge-red" style="margin-top:6px">No contact</span>' : ''}
+        ${c.email_bounced ? '<span class="badge badge-amber" style="margin-top:6px;margin-left:4px">Bounced</span>' : ''}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${!edit ? `<button class="btn btn-ghost" id="edit-btn" style="font-size:12px">✏ Edit</button>` : ''}
+        <button class="close-btn" id="close-drawer">✕</button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-section">
+        <div class="drawer-section-title">Contact info</div>
+        <div class="info-grid">
+          ${field('First name', 'first_name')}
+          ${field('Last name', 'last_name')}
+          ${field('Company', 'company')}
+          ${field('Phone', 'phone')}
+          ${field('Job title', 'job_title')}
+          ${field('Department', 'department')}
+          ${field('Industry', 'industry')}
+          ${field('City', 'city')}
+          ${field('State', 'state')}
+          ${field('Country', 'country')}
+          ${field('Source', 'source')}
+          ${field('Lead category', 'lead_category')}
+          ${field('LinkedIn', 'linkedin_personal', true)}
+          ${field('Company URL', 'company_url', true)}
+        </div>
+        ${edit ? `
+        <div class="edit-actions">
+          <button class="btn btn-primary" id="save-edit-btn">💾 Save changes</button>
+          <button class="btn btn-ghost" id="cancel-edit-btn">Cancel</button>
+        </div>` : ''}
+        ${!edit && Object.keys(c.custom_fields||{}).length ? `
+        <div style="margin-top:12px">
+          <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Custom fields</div>
+          <div class="info-grid">
+            ${Object.entries(c.custom_fields||{}).filter(([,v])=>v).map(([k,v])=>`
+            <div class="info-item"><label>${k}</label><span>${v}</span></div>`).join('')}
+          </div>
+        </div>` : ''}
+      </div>
+
+      <div class="drawer-section">
+        <div class="drawer-section-title">Campaign history (${(d.campaign_leads||[]).length})</div>
+        ${(d.campaign_leads||[]).length ? d.campaign_leads.map(cl => {
+          const acts = (d.campaign_activity||[]).filter(a => a.campaign_name === cl.campaign_name);
+          return `
+          <div class="campaign-card">
+            <div class="campaign-header">
+              <div class="campaign-name">${cl.campaign_name || 'Unknown campaign'}</div>
+              ${badge(cl.lead_category)}
+            </div>
+            <div style="color:var(--text2);font-size:11px">Status: ${cl.status || '—'} · Sequence: ${cl.current_sequence || '—'}</div>
+            ${acts.length ? `
+            <div class="activity-row">
+              ${acts.map(a => `
+              <div class="activity-item">Seq ${a.sequence_number}:
+                <span>${a.sent_at ? '✉ Sent' : ''}</span>
+                ${a.opened_at ? '<span>👁 Opened</span>' : ''}
+                ${a.replied_at ? '<span>↩ Replied</span>' : ''}
+                ${parseInt(a.open_count)>0 ? `<span>(${a.open_count} opens)</span>` : ''}
+              </div>`).join('')}
+            </div>` : ''}
+            ${cl.reply_message ? `<div class="campaign-msg">${cl.reply_message}</div>` : ''}
+          </div>`;
+        }).join('') : '<div style="color:var(--text2);font-size:13px">No campaign history</div>'}
+      </div>
+
+      <div class="drawer-section">
+        <div class="drawer-section-title">Tags</div>
+        <div id="drawer-tags-list" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          ${(state.drawerTags||[]).map(t => renderTagPill(t, true, c.email)).join('') || '<span style="color:var(--text2);font-size:12px">No tags yet</span>'}
+        </div>
+        <div class="tag-add-row">
+          <select class="filter-input" id="tag-picker" style="font-size:12px;height:30px;padding:4px 8px">
+            <option value="">+ Add tag...</option>
+            ${state.tags.filter(t => !(state.drawerTags||[]).find(dt => dt.id===t.id)).map(t =>
+              `<option value="${t.id}" style="color:${t.color}">${t.name}</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <input class="filter-input" id="new-tag-name" placeholder="New tag name..." style="font-size:12px;height:30px;padding:4px 8px;width:140px">
+          <div style="display:flex;gap:4px">
+            ${TAG_COLORS.map(col => `<button class="color-dot tag-color-opt" data-color="${col}" style="background:${col};width:16px;height:16px;border-radius:50%;border:2px solid transparent;cursor:pointer" title="${col}"></button>`).join('')}
+          </div>
+          <button class="btn btn-ghost" id="create-tag-btn" style="font-size:12px;height:30px;padding:4px 10px">Create</button>
+        </div>
+      </div>
+
+      <div class="drawer-section">
+        <div class="drawer-section-title">Notes (${(d.notes||[]).length})</div>
+        ${(d.notes||[]).map(n => `
+        <div class="nota-card">
+          <div>
+            <div class="nota-text">${n.note}</div>
+            <div class="nota-date">${fmtDate(n.created_at)}</div>
+          </div>
+          <button class="nota-delete" data-nota-id="${n.id}">✕</button>
+        </div>`).join('')}
+        <div class="nota-form">
+          <textarea class="nota-input" id="nota-input" placeholder="Add a note..." rows="2"></textarea>
+          <button class="btn btn-primary" id="nota-save-btn">Save</button>
+        </div>
+      </div>
+    </div>` : '<div class="loading"><div class="spinner"></div><br>Loading...</div>'}
+  </div>`;
+}
+
+// ─── Import Modal ──────────────────────────────────────────
+let importState = { type: 'contacts', file: null, rows: [], mapped: [], mappedCols: [], customCols: [] };
+
+const MEXICAN_SUFFIXES = [
+  'S.A. de C.V.','SA de CV','S. A. de C. V.','S.A DE C.V',
+  'S.A.P.I. de C.V.','SAPI de CV',
+  'S. de R.L. de C.V.','S de RL de CV','S.R.L.',
+  'S.A.','S. A.','SA',
+  'A.C.','A. C.',
+  'S.C.','S. C.',
+  'S.A.S.','SAS',
+  'S.A.B.','SAB',
+  'SOFOM E.N.R.','SOFOM ENR',
+];
+
+function renderCleanupModal() {
+  return `
+  <div class="modal-overlay" id="cleanup-modal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <div class="modal-title">🧹 Company Cleanup</div>
+        <button class="btn btn-ghost" id="cleanup-close-btn" style="font-size:18px;padding:0 6px">×</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:24px">
+
+        <!-- Trim leading/trailing commas & spaces -->
+        <div style="background:rgba(91,106,240,.06);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
+          <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px">
+            <span style="font-size:18px;margin-top:2px">✂️</span>
+            <div style="flex:1">
+              <div style="font-weight:600;margin-bottom:2px">Limpiar bordes</div>
+              <div style="color:var(--text2);font-size:12px;margin-bottom:10px">Elimina caracteres no deseados al inicio o al final del nombre de la empresa.</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <label style="font-size:12px;color:var(--text2);white-space:nowrap">Caracteres a eliminar:</label>
+                <input class="filter-input" id="trim-chars" value=" ,"
+                  placeholder="Ej: , . • &#9;" title="Escribe aquí los caracteres que quieres quitar de los bordes"
+                  style="width:160px;font-family:monospace">
+                <span style="font-size:11px;color:var(--text2)">(espacio incluido = quita espacios)</span>
+              </div>
+            </div>
+            <button class="btn btn-secondary" id="trim-preview-btn" style="margin-top:24px;white-space:nowrap">🔍 Detectar</button>
+          </div>
+          <div id="trim-preview-area"></div>
+          <div id="trim-apply-row" style="display:none;margin-top:12px">
+            <button class="btn btn-green" id="trim-apply-btn">✅ Limpiar todas</button>
+          </div>
+        </div>
+
+        <!-- Preset suffixes -->
+        <div>
+          <div style="font-weight:600;margin-bottom:8px">Sufijos legales comunes</div>
+          <div style="color:var(--text2);font-size:12px;margin-bottom:12px">Haz clic para cargarlo en el buscador, luego haz Preview.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            ${MEXICAN_SUFFIXES.map(s => `<button class="suffix-chip" data-suffix="${s}">${s}</button>`).join('')}
+          </div>
+        </div>
+
+        <div style="border-top:1px solid var(--border);padding-top:20px">
+          <div style="font-weight:600;margin-bottom:14px">Buscar y reemplazar</div>
+          <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:end;margin-bottom:12px">
+            <div>
+              <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">Buscar (texto a eliminar/reemplazar)</label>
+              <input class="filter-input" id="cleanup-find" placeholder="Ej: SA de CV" style="width:100%">
+            </div>
+            <div style="color:var(--text2);font-size:20px;padding-bottom:6px">→</div>
+            <div>
+              <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">Reemplazar con (vacío = eliminar)</label>
+              <input class="filter-input" id="cleanup-replace" placeholder="Vacío para eliminar" style="width:100%">
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+              <input type="checkbox" id="cleanup-case" style="accent-color:var(--accent)">
+              Distinguir mayúsculas/minúsculas
+            </label>
+            <button class="btn btn-secondary" id="cleanup-preview-btn" style="margin-left:auto">🔍 Preview</button>
+          </div>
+          <div id="cleanup-preview-area"></div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cleanup-cancel-btn">Cancelar</button>
+        <button class="btn btn-green" id="cleanup-apply-btn" disabled>✅ Aplicar cambios</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderImportModal() {
+  return `
+  <div class="modal-overlay" id="import-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">⬆ Import CSV</div>
+        <button class="close-btn" id="close-import">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Select the type of data you're importing:</div>
+        <div class="import-type-grid">
+          <div class="import-type-btn ${importState.type==='contacts'?'selected':''}" data-type="contacts">
+            <div class="import-type-icon">👥</div>
+            <div class="import-type-label">Contacts</div>
+          </div>
+          <div class="import-type-btn ${importState.type==='campaign-leads'?'selected':''}" data-type="campaign-leads">
+            <div class="import-type-icon">📋</div>
+            <div class="import-type-label">Campaign Leads</div>
+          </div>
+          <div class="import-type-btn ${importState.type==='campaign-activity'?'selected':''}" data-type="campaign-activity">
+            <div class="import-type-icon">📊</div>
+            <div class="import-type-label">Campaign Activity</div>
+          </div>
+        </div>
+
+        <div class="file-drop" id="file-drop">
+          <div class="file-drop-icon">📄</div>
+          <div class="file-drop-text">
+            Drop your CSV here or <strong id="file-browse">click to browse</strong>
+          </div>
+          <input type="file" id="file-input" accept=".csv" style="display:none">
+        </div>
+
+        <div id="import-preview-area"></div>
+        <div id="import-status" style="font-size:13px;color:var(--text2);min-height:20px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-import">Cancel</button>
+        <button class="btn btn-secondary" id="apply-mapping" style="display:none">Apply Mapping</button>
+        <button class="btn btn-primary" id="confirm-import" disabled>Import</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function openImportModal() {
+  importState = { type: 'contacts', file: null, rows: [], mapped: [], mappedCols: [], customCols: [] };
+  document.getElementById('import-modal').classList.add('open');
+  bindImportModal();
+}
+
+function closeImportModal() {
+  document.getElementById('import-modal').classList.remove('open');
+}
+
+function bindImportModal() {
+  document.getElementById('close-import').addEventListener('click', closeImportModal);
+  document.getElementById('cancel-import').addEventListener('click', closeImportModal);
+
+  document.querySelectorAll('.import-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      importState.type = btn.dataset.type;
+      document.querySelectorAll('.import-type-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      if (importState.rows.length) processFile();
+    });
+  });
+
+  const fileInput = document.getElementById('file-input');
+  document.getElementById('file-browse').addEventListener('click', () => fileInput.click());
+  document.getElementById('file-drop').addEventListener('click', e => { if (e.target.id !== 'file-browse') fileInput.click(); });
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+  const drop = document.getElementById('file-drop');
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag'); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+
+  document.getElementById('apply-mapping').addEventListener('click', applyUserMapping);
+  document.getElementById('confirm-import').addEventListener('click', runImport);
+}
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    importState.rows = parseCSV(e.target.result);
+    processFile();
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+const ALL_FIELDS = {
+  contacts: ['email','first_name','last_name','company','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp'],
+  'campaign-leads': ['email','campaign_name','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal'],
+  'campaign-activity': ['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed'],
+};
+
+function processFile() {
+  if (!importState.rows.length) return;
+  const rawHeaders = Object.keys(importState.rows[0]);
+  const fields = ALL_FIELDS[importState.type] || ALL_FIELDS.contacts;
+  const fieldOpts = fields.map(f => `<option value="${f}">${f}</option>`).join('');
+
+  const rows = rawHeaders.map(h => {
+    const auto = COLUMN_MAP[h.toLowerCase().trim()] || '';
+    const validAuto = fields.includes(auto) ? auto : '';
+    const skipSel = (!validAuto) ? 'selected' : '';
+    const customSel = (!validAuto && !skipSel) ? 'selected' : '';
+    return `
+    <tr>
+      <td style="padding:5px 8px;font-size:12px;color:var(--text1);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${h}">${h}</td>
+      <td style="padding:5px 8px;font-size:11px;color:var(--text3);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${String(importState.rows[0][h]||'').slice(0,30)}</td>
+      <td style="padding:5px 8px">
+        <select class="col-map-select form-control" style="font-size:12px;padding:3px 6px;height:28px" data-col="${h}">
+          <option value="" ${skipSel}>— skip —</option>
+          <option value="__custom__" ${!validAuto && !skipSel ? 'selected':''}>→ custom_field</option>
+          ${fields.map(f => `<option value="${f}" ${validAuto===f?'selected':''}>${f}</option>`).join('')}
+        </select>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const area = document.getElementById('import-preview-area');
+  area.innerHTML = `
+    <div class="import-preview" style="padding:0">
+      <div style="padding:10px 12px 6px;font-size:12px;font-weight:600;color:var(--text1)">
+        📂 ${importState.rows.length.toLocaleString()} rows — assign each column:
+      </div>
+      <div style="max-height:240px;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:var(--bg3)">
+              <th style="padding:5px 8px;font-size:11px;color:var(--text2);text-align:left;font-weight:500">CSV Column</th>
+              <th style="padding:5px 8px;font-size:11px;color:var(--text2);text-align:left;font-weight:500">Sample</th>
+              <th style="padding:5px 8px;font-size:11px;color:var(--text2);text-align:left;font-weight:500">Maps to</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById('apply-mapping').style.display = 'inline-flex';
+  document.getElementById('confirm-import').disabled = true;
+  document.getElementById('confirm-import').textContent = 'Import';
+}
+
+function applyUserMapping() {
+  const selects = document.querySelectorAll('.col-map-select');
+  const userMap = {};
+  selects.forEach(sel => { userMap[sel.dataset.col] = sel.value; });
+
+  const knownSet = KNOWN_FIELDS[importState.type] || new Set();
+  importState.mapped = importState.rows.map(row => {
+    const out = {};
+    for (const [col, val] of Object.entries(row)) {
+      const target = userMap[col];
+      if (!target) continue;
+      if (target === '__custom__') {
+        if (!out.__custom__) out.__custom__ = {};
+        out.__custom__[col] = val;
+      } else {
+        out[target] = val;
+      }
+    }
+    // merge custom into a single key for the backend
+    if (out.__custom__) { Object.assign(out, out.__custom__); delete out.__custom__; }
+    return out;
+  });
+
+  importState.mappedCols = Object.keys(importState.mapped[0] || {}).filter(k => knownSet.has(k));
+  importState.customCols = Object.keys(importState.mapped[0] || {}).filter(k => !knownSet.has(k) && k !== 'email');
+
+  const area = document.getElementById('import-preview-area');
+  area.innerHTML = `
+    <div class="import-preview">
+      <div class="import-preview-title">✅ ${importState.mapped.length.toLocaleString()} rows ready</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Mapped columns:</div>
+      <div class="import-preview-row">
+        ${importState.mappedCols.map(c => `<span class="col-mapped">${c}</span>`).join('')}
+      </div>
+      ${importState.customCols.length ? `
+      <div style="font-size:11px;color:var(--text2);margin:8px 0 6px">→ custom_fields:</div>
+      <div class="import-preview-row">
+        ${importState.customCols.map(c => `<span class="col-custom">${c}</span>`).join('')}
+      </div>` : ''}
+    </div>`;
+
+  document.getElementById('apply-mapping').style.display = 'none';
+  document.getElementById('confirm-import').disabled = false;
+  document.getElementById('confirm-import').textContent = `Import ${importState.mapped.length.toLocaleString()} rows`;
+}
+
+async function runImport() {
+  const btn = document.getElementById('confirm-import');
+  const status = document.getElementById('import-status');
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+
+  const BATCH = 200;
+  let imported = 0, errors = 0;
+  const rows = importState.mapped;
+
+  const area = document.getElementById('import-preview-area');
+  area.innerHTML += `<div class="import-progress"><div class="import-progress-bar" id="prog-bar" style="width:0%"></div></div>`;
+
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH);
+    const res = await apiFetch(`/api/import/${importState.type}`, {
+      method: 'POST',
+      body: JSON.stringify({ rows: batch })
+    });
+    if (res) { imported += res.imported || 0; errors += res.errors || 0; }
+    const pct = Math.round(((i + batch.length) / rows.length) * 100);
+    const bar = document.getElementById('prog-bar');
+    if (bar) bar.style.width = pct + '%';
+    status.textContent = `${imported.toLocaleString()} imported, ${errors} errors...`;
+  }
+
+  status.textContent = `✅ Done: ${imported.toLocaleString()} imported${errors ? `, ${errors} errors` : ''}.`;
+  btn.textContent = 'Close';
+  btn.disabled = false;
+  btn.onclick = () => { closeImportModal(); loadAll(); };
+}
+
+// ═══════════════════════════════════════════════════════════
+// EVENTS
+// ═══════════════════════════════════════════════════════════
+function bindApp() {
+  document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+    el.addEventListener('click', () => {
+      state.view = el.dataset.view;
+      render();
+      if (state.view === 'companies') loadCompanies();
+    });
+  });
+  document.getElementById('logout-btn')?.addEventListener('click', () => {
+    API_KEY = ''; localStorage.removeItem('crm_api_key'); render();
+  });
+
+  if (state.view === 'contacts') bindContactsEvents();
+  if (state.view === 'campaigns') bindCampaignEvents();
+  if (state.view === 'companies') bindCompanyEvents();
+  if (state.view === 'admin') bindAdminEvents();
+
+  document.getElementById('drawer-overlay')?.addEventListener('click', closeDrawer);
+  document.getElementById('close-drawer')?.addEventListener('click', closeDrawer);
+  document.getElementById('nota-save-btn')?.addEventListener('click', saveNote);
+  document.querySelectorAll('.nota-delete').forEach(btn => {
+    btn.addEventListener('click', () => deleteNote(btn.dataset.notaId));
+  });
+}
+
+function bindCampaignEvents() {
+  document.querySelectorAll('.btn-export-camp').forEach(btn => {
+    btn.addEventListener('click', () => exportData(btn.dataset.campaign, btn.dataset.cat));
+  });
+
+  document.querySelectorAll('.camp-rename-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.camp;
+      document.querySelector(`.camp-name-view[data-camp="${key}"]`).style.display = 'none';
+      const editRow = document.querySelector(`.camp-name-edit[data-camp="${key}"]`);
+      editRow.style.display = 'flex';
+      editRow.querySelector('input').focus();
+    });
+  });
+
+  document.querySelectorAll('.camp-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.closest('.camp-name-edit').dataset.camp;
+      document.querySelector(`.camp-name-view[data-camp="${key}"]`).style.display = '';
+      document.querySelector(`.camp-name-edit[data-camp="${key}"]`).style.display = 'none';
+    });
+  });
+
+  document.querySelectorAll('.camp-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const editRow = btn.closest('.camp-name-edit');
+      const originalEncoded = editRow.dataset.camp;
+      const originalName = decodeURIComponent(originalEncoded);
+      const newName = editRow.querySelector('input').value.trim();
+      if (!newName || newName === originalName) {
+        document.querySelector(`.camp-name-view[data-camp="${originalEncoded}"]`).style.display = '';
+        editRow.style.display = 'none';
+        return;
+      }
+      btn.textContent = 'Saving...'; btn.disabled = true;
+      const res = await apiFetch(`/api/campaigns/${originalEncoded}`, {
+        method: 'PATCH', body: JSON.stringify({ new_name: newName })
+      });
+      if (res?.ok) {
+        state.campaigns = state.campaigns.map(c =>
+          c.campaign_name === originalName ? { ...c, campaign_name: newName } : c
+        );
+        render(); bindApp();
+      } else {
+        btn.textContent = 'Save'; btn.disabled = false;
+        alert('Error renaming campaign: ' + (res?.error || 'unknown'));
+      }
+    });
+  });
+
+  document.querySelectorAll('.camp-edit-input').forEach(inp => {
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') inp.closest('.camp-name-edit').querySelector('.camp-save-btn').click();
+      if (e.key === 'Escape') inp.closest('.camp-name-edit').querySelector('.camp-cancel-btn').click();
+    });
+  });
+
+  // Search
+  let campT;
+  document.getElementById('camp-search')?.addEventListener('input', e => {
+    clearTimeout(campT);
+    campT = setTimeout(() => { state.campSearch = e.target.value; loadCampaignsOnly(); }, 350);
+  });
+
+  // Sort headers
+  document.querySelectorAll('[data-camp-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.campSort;
+      if (state.campSort === col) state.campDir = state.campDir === 'ASC' ? 'DESC' : 'ASC';
+      else { state.campSort = col; state.campDir = 'ASC'; }
+      loadCampaignsOnly();
+    });
+  });
+
+  initColumnResize(document.querySelector('.table'), 'crm_col_widths_campaigns');
+}
+
+function bindAdminEvents() {
+  const TABLE_LABELS = { contacts: 'Contactos', campaign_activity: 'Actividad de campaña', campaign_leads: 'Campaign leads' };
+
+  // ── Company merge ──
+  document.getElementById('merge-export-btn').onclick = () => {
+    const cfKey = document.getElementById('merge-cf-key').value.trim() || 'nombre de empresa';
+    const url = `/api/admin/company-conflict-csv?cf_key=${encodeURIComponent(cfKey)}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.setAttribute('download', 'company_conflicts.csv');
+    // Include API key in header — use fetch + blob since we need auth
+    fetch(url, { headers: { 'x-api-key': API_KEY } })
+      .then(r => r.blob())
+      .then(blob => {
+        const bUrl = URL.createObjectURL(blob);
+        a.href = bUrl;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(bUrl);
+      });
+  };
+
+  document.getElementById('merge-preview-btn').onclick = async () => {
+    const cfKey = document.getElementById('merge-cf-key').value.trim();
+    if (!cfKey) { alert('Escribe el nombre del custom field.'); return; }
+    const btn = document.getElementById('merge-preview-btn');
+    btn.textContent = 'Analizando…'; btn.disabled = true;
+    const data = await apiFetch('/api/admin/preview-company-merge?cf_key=' + encodeURIComponent(cfKey));
+    btn.textContent = '🔍 Preview'; btn.disabled = false;
+
+    const area = document.getElementById('merge-result-area');
+    const applyBtn = document.getElementById('merge-apply-btn');
+
+    if (!data || data.error) {
+      area.innerHTML = `<div style="color:#f87171;font-size:13px">Error: ${data?.error||'unknown'}</div>`;
+      applyBtn.disabled = true; return;
+    }
+
+    const total = data.step1_same_value + data.step2_copy_company;
+    const sampleRows = (data.samples||[]).map(r => `<tr>
+      <td style="font-size:12px;color:var(--text2)">${r.email}</td>
+      <td style="font-size:12px">${r.company||'<em style="color:var(--text2)">vacío</em>'}</td>
+      <td style="font-size:12px">${r.cf_val||'—'}</td>
+    </tr>`).join('');
+
+    area.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+        <div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:var(--radius-sm);padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#fbbf24">${data.step1_same_value.toLocaleString()}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">Mismo valor → limpia custom field</div>
+        </div>
+        <div style="background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.3);border-radius:var(--radius-sm);padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#4ade80">${data.step2_copy_company.toLocaleString()}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">Company vacío → copia y limpia</div>
+        </div>
+        <div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:var(--radius-sm);padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#f87171">${data.remaining_conflict.toLocaleString()}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">Conflicto — no se tocan</div>
+        </div>
+      </div>
+      ${sampleRows ? `
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Muestra de registros con el custom field:</div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;max-height:220px;overflow-y:auto">
+        <table class="replace-preview-table">
+          <thead><tr><th>Email</th><th>Company actual</th><th>${cfKey}</th></tr></thead>
+          <tbody>${sampleRows}</tbody>
+        </table>
+      </div>` : ''}
+      ${data.remaining_conflict > 0 ? `<div style="color:#fbbf24;font-size:12px;margin-top:10px">⚠ ${data.remaining_conflict.toLocaleString()} registros tienen valores distintos en ambos campos — no se modificarán. Puedes revisarlos filtrando por "company has value" y "${cfKey} has value" en Contactos.</div>` : ''}`;
+
+    applyBtn.disabled = total === 0;
+    applyBtn.onclick = async () => {
+      if (!confirm(`¿Aplicar la fusión?\n• ${data.step1_same_value} registros: se limpia el custom field\n• ${data.step2_copy_company} registros: se copia a company y se limpia\n\nEsta operación modifica la base de datos.`)) return;
+      applyBtn.textContent = 'Aplicando…'; applyBtn.disabled = true;
+      const res = await apiFetch('/api/admin/apply-company-merge', {
+        method: 'POST', body: JSON.stringify({ cf_key: cfKey })
+      });
+      if (res?.ok) {
+        area.innerHTML = `<div style="color:#4ade80;font-size:13px;padding:10px 0">
+          ✅ Fusión completada.<br>
+          <span style="color:var(--text2);font-size:12px">
+            Paso 1 (mismo valor limpiado): ${res.step1_cleaned} ·
+            Paso 2 (copiados a company): ${res.step2_merged}
+          </span>
+        </div>`;
+        applyBtn.disabled = true;
+        document.getElementById('merge-preview-btn').textContent = '🔍 Preview';
+      } else {
+        applyBtn.textContent = '✅ Aplicar'; applyBtn.disabled = false;
+        alert('Error: ' + (res?.error||'unknown'));
+      }
+    };
+  };
+
+  // ── Encoding fix ──
+  document.getElementById('encoding-preview-btn').onclick = async () => {
+    const btn = document.getElementById('encoding-preview-btn');
+    btn.textContent = 'Analizando…'; btn.disabled = true;
+    const data = await apiFetch('/api/admin/preview-encoding');
+    btn.textContent = '🔍 Preview'; btn.disabled = false;
+
+    const area = document.getElementById('encoding-result-area');
+    const applyBtn = document.getElementById('encoding-apply-btn');
+
+    if (!data || data.error) {
+      area.innerHTML = `<div style="color:#f87171;font-size:13px">Error: ${data?.error || 'unknown'}</div>`;
+      applyBtn.disabled = true; return;
+    }
+
+    if (data.totalRows === 0) {
+      area.innerHTML = `<div style="color:#4ade80;font-size:13px;padding:10px 0">✅ No se encontraron problemas de encoding en la base de datos.</div>`;
+      applyBtn.disabled = true; return;
+    }
+
+    const breakdown = Object.entries(data.affected)
+      .filter(([,n]) => n > 0)
+      .map(([t, n]) => `<span style="background:rgba(255,255,255,.06);padding:3px 10px;border-radius:20px;font-size:12px">${TABLE_LABELS[t]||t}: <strong>${n}</strong></span>`)
+      .join(' ');
+
+    const sampleRows = data.samples.map(s => `
+      <tr>
+        <td style="color:var(--text2);font-size:11px">${TABLE_LABELS[s.table]||s.table}</td>
+        <td class="old-val"><code style="font-size:12px;background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px">${s.before.replace(/</g,'&lt;')}</code></td>
+        <td class="arrow-cell">→</td>
+        <td class="new-val" style="font-size:13px">${s.after.replace(/</g,'&lt;')}</td>
+      </tr>`).join('');
+
+    area.innerHTML = `
+      <div style="margin-bottom:12px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">
+          ${data.totalRows.toLocaleString()} registros con problemas detectados:
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${breakdown}</div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Muestra de cambios que se aplicarían:</div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;max-height:280px;overflow-y:auto">
+        <table class="replace-preview-table">
+          <thead><tr>
+            <th style="width:120px">Tabla</th>
+            <th>Antes</th><th></th><th>Después</th>
+          </tr></thead>
+          <tbody>${sampleRows}</tbody>
+        </table>
+      </div>
+      <div style="color:var(--text2);font-size:12px;margin-top:10px">
+        Se muestran hasta 5 ejemplos por tabla. El botón "Aplicar" corregirá <strong>todos</strong> los registros afectados.
+      </div>`;
+
+    applyBtn.disabled = false;
+    applyBtn.onclick = async () => {
+      if (!confirm(`¿Aplicar la corrección de encoding a ${data.totalRows.toLocaleString()} registros? Esta operación modifica la base de datos.`)) return;
+      applyBtn.textContent = 'Aplicando…'; applyBtn.disabled = true;
+      const res = await apiFetch('/api/admin/fix-encoding', { method: 'POST', body: '{}' });
+      if (res?.ok) {
+        const detail = Object.entries(res.results)
+          .map(([t, n]) => `${TABLE_LABELS[t]||t}: ${n} registros`)
+          .join(' · ');
+        area.innerHTML = `<div style="color:#4ade80;font-size:13px;padding:10px 0">
+          ✅ Encoding corregido exitosamente.<br>
+          <span style="color:var(--text2);font-size:12px">${detail}</span>
+        </div>`;
+        document.getElementById('encoding-preview-btn').textContent = '🔍 Preview';
+        applyBtn.disabled = true; applyBtn.textContent = '✅ Aplicar corrección';
+      } else {
+        applyBtn.textContent = '✅ Aplicar corrección'; applyBtn.disabled = false;
+        alert('Error: ' + (res?.error || 'unknown'));
+      }
+    };
+  };
+}
+
+function bindCompanyEvents() {
+  // Rename show/hide
+  document.querySelectorAll('.comp-rename-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.comp;
+      document.querySelector(`.camp-name-view[data-comp="${key}"]`).style.display = 'none';
+      const editRow = document.querySelector(`.comp-name-edit[data-comp="${key}"]`);
+      editRow.style.display = 'flex';
+      editRow.querySelector('input').focus();
+    });
+  });
+
+  document.querySelectorAll('.comp-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.closest('.comp-name-edit').dataset.comp;
+      document.querySelector(`.camp-name-view[data-comp="${key}"]`).style.display = '';
+      document.querySelector(`.comp-name-edit[data-comp="${key}"]`).style.display = 'none';
+    });
+  });
+
+  document.querySelectorAll('.comp-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const editRow = btn.closest('.comp-name-edit');
+      const originalEncoded = editRow.dataset.comp;
+      const originalName = decodeURIComponent(originalEncoded);
+      const newName = editRow.querySelector('input').value.trim();
+      if (!newName || newName === originalName) {
+        document.querySelector(`.camp-name-view[data-comp="${originalEncoded}"]`).style.display = '';
+        editRow.style.display = 'none'; return;
+      }
+      btn.textContent = 'Saving…'; btn.disabled = true;
+      const res = await apiFetch(`/api/companies/${originalEncoded}`, {
+        method: 'PATCH', body: JSON.stringify({ new_name: newName })
+      });
+      if (res?.ok) { await loadCompanies(); }
+      else { btn.textContent = 'Save'; btn.disabled = false; alert('Error: ' + (res?.error || 'unknown')); }
+    });
+  });
+
+  document.querySelectorAll('.comp-edit-input').forEach(inp => {
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') inp.closest('.comp-name-edit').querySelector('.comp-save-btn').click();
+      if (e.key === 'Escape') inp.closest('.comp-name-edit').querySelector('.comp-cancel-btn').click();
+    });
+  });
+
+  // Search
+  let compT;
+  document.getElementById('comp-search')?.addEventListener('input', e => {
+    clearTimeout(compT);
+    compT = setTimeout(() => { state.compSearch = e.target.value; state.compPage = 1; loadCompanies(); }, 350);
+  });
+
+  // Sort headers
+  document.querySelectorAll('[data-comp-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.compSort;
+      if (state.compSort === col) state.compDir = state.compDir === 'ASC' ? 'DESC' : 'ASC';
+      else { state.compSort = col; state.compDir = 'ASC'; }
+      state.compPage = 1; loadCompanies();
+    });
+  });
+
+  // Select all
+  document.getElementById('comp-select-all')?.addEventListener('change', e => {
+    if (e.target.checked) state.companies.forEach(c => state.selectedCompanies.add(c.company));
+    else state.selectedCompanies.clear();
+    render(); bindApp();
+  });
+
+  // Individual checkboxes
+  document.querySelectorAll('.comp-row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const name = decodeURIComponent(cb.dataset.company);
+      if (cb.checked) state.selectedCompanies.add(name);
+      else state.selectedCompanies.delete(name);
+      render(); bindApp();
+    });
+  });
+
+  // Bulk clear
+  document.getElementById('comp-bulk-clear-btn')?.addEventListener('click', () => {
+    state.selectedCompanies.clear(); render(); bindApp();
+  });
+
+  // Bulk tag apply
+  document.getElementById('comp-bulk-tag-btn')?.addEventListener('click', async () => {
+    const tag_id = parseInt(document.getElementById('comp-bulk-tag-select').value);
+    if (!tag_id) { alert('Selecciona una etiqueta.'); return; }
+    const companies = [...state.selectedCompanies];
+    const btn = document.getElementById('comp-bulk-tag-btn');
+    btn.textContent = 'Aplicando…'; btn.disabled = true;
+    const res = await apiFetch('/api/companies/bulk-tag', {
+      method: 'POST', body: JSON.stringify({ companies, tag_id })
+    });
+    btn.textContent = 'Aplicar'; btn.disabled = false;
+    if (res?.ok) {
+      const t = state.tags.find(t => t.id === tag_id);
+      alert(`Etiqueta "${t?.name}" aplicada a ${res.contacts_tagged} contactos.`);
+      state.selectedCompanies.clear(); render(); bindApp();
+    } else { alert('Error: ' + (res?.error || 'unknown')); }
+  });
+
+  // Pagination
+  document.querySelectorAll('.comp-page-btn').forEach(btn => {
+    btn.addEventListener('click', () => { state.compPage = parseInt(btn.dataset.page); loadCompanies(); });
+  });
+  document.getElementById('comp-limit-select')?.addEventListener('change', e => {
+    state.compLimit = parseInt(e.target.value); state.compPage = 1; loadCompanies();
+  });
+
+  // Cleanup modal open
+  document.getElementById('cleanup-open-btn')?.addEventListener('click', openCleanupModal);
+
+  initColumnResize(document.querySelector('.table'), 'crm_col_widths_companies');
+}
+
+// ── Cleanup modal ──────────────────────────────────────────
+function openCleanupModal() {
+  document.getElementById('cleanup-modal')?.classList.add('open');
+  document.getElementById('cleanup-preview-area').innerHTML = '';
+  document.getElementById('cleanup-apply-btn').disabled = true;
+  document.getElementById('cleanup-find').value = '';
+  document.getElementById('cleanup-replace').value = '';
+  bindCleanupModal();
+}
+
+function closeCleanupModal() {
+  document.getElementById('cleanup-modal')?.classList.remove('open');
+}
+
+function bindCleanupModal() {
+  document.getElementById('cleanup-close-btn').onclick = closeCleanupModal;
+  document.getElementById('cleanup-cancel-btn').onclick = closeCleanupModal;
+  document.getElementById('cleanup-modal').onclick = e => { if (e.target.id === 'cleanup-modal') closeCleanupModal(); };
+
+  // Trim detect
+  document.getElementById('trim-preview-btn').onclick = async () => {
+    const btn = document.getElementById('trim-preview-btn');
+    const chars = document.getElementById('trim-chars').value;
+    if (!chars.length) { alert('Escribe al menos un carácter a eliminar.'); return; }
+    btn.textContent = 'Detectando…'; btn.disabled = true;
+    const data = await apiFetch('/api/companies/preview-trim?chars=' + encodeURIComponent(chars));
+    btn.textContent = '🔍 Detectar'; btn.disabled = false;
+    const area = document.getElementById('trim-preview-area');
+    const applyRow = document.getElementById('trim-apply-row');
+    if (!data || data.error) {
+      area.innerHTML = `<div style="color:#f87171;font-size:13px">Error: ${data?.error||'unknown'}</div>`;
+      applyRow.style.display = 'none'; return;
+    }
+    if (data.length === 0) {
+      area.innerHTML = `<div style="color:var(--text2);font-size:13px;padding:8px 0">✅ No se encontraron empresas con bordes sucios.</div>`;
+      applyRow.style.display = 'none'; return;
+    }
+    area.innerHTML = `
+      <div style="font-size:13px;color:var(--text2);margin-bottom:8px">${data.length} empresa${data.length!==1?'s':''} con bordes sucios:</div>
+      <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <table class="replace-preview-table">
+          <thead><tr><th>Antes</th><th></th><th>Después</th></tr></thead>
+          <tbody>${data.map(r=>`<tr>
+            <td class="old-val"><code style="background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px">${r.old.replace(/</g,'&lt;')}</code></td>
+            <td class="arrow-cell">→</td>
+            <td class="new-val">${r.updated}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>`;
+    applyRow.style.display = 'block';
+    document.getElementById('trim-apply-btn').onclick = async () => {
+      if (!confirm(`¿Limpiar los bordes de ${data.length} empresa${data.length!==1?'s':''}?`)) return;
+      const applyBtn = document.getElementById('trim-apply-btn');
+      applyBtn.textContent = 'Limpiando…'; applyBtn.disabled = true;
+      const chars = document.getElementById('trim-chars').value;
+      const res = await apiFetch('/api/companies/apply-trim', { method: 'POST', body: JSON.stringify({ chars }) });
+      if (res?.ok) { closeCleanupModal(); await loadCompanies(); }
+      else { applyBtn.textContent = '✅ Limpiar todas'; applyBtn.disabled = false; alert('Error: ' + (res?.error||'unknown')); }
+    };
+  };
+
+  // Suffix chips → fill find input
+  document.querySelectorAll('.suffix-chip').forEach(chip => {
+    chip.onclick = () => {
+      document.getElementById('cleanup-find').value = chip.dataset.suffix;
+      document.getElementById('cleanup-replace').value = '';
+      document.getElementById('cleanup-find').focus();
+    };
+  });
+
+  // Preview
+  document.getElementById('cleanup-preview-btn').onclick = async () => {
+    const find = document.getElementById('cleanup-find').value.trim();
+    if (!find) { alert('Escribe el texto a buscar.'); return; }
+    const replace = document.getElementById('cleanup-replace').value;
+    const cs = document.getElementById('cleanup-case').checked;
+    const btn = document.getElementById('cleanup-preview-btn');
+    btn.textContent = 'Buscando…'; btn.disabled = true;
+    const params = new URLSearchParams({ find, replace, case_sensitive: cs });
+    const data = await apiFetch('/api/companies/preview-replace?' + params);
+    btn.textContent = '🔍 Preview'; btn.disabled = false;
+
+    const area = document.getElementById('cleanup-preview-area');
+    const applyBtn = document.getElementById('cleanup-apply-btn');
+
+    if (!data || data.error) {
+      area.innerHTML = `<div style="color:#f87171;font-size:13px">Error: ${data?.error || 'unknown'}</div>`;
+      applyBtn.disabled = true; return;
+    }
+    if (data.length === 0) {
+      area.innerHTML = `<div style="color:var(--text2);font-size:13px;padding:12px 0">No se encontraron coincidencias.</div>`;
+      applyBtn.disabled = true; return;
+    }
+
+    const updateApplyLabel = () => {
+      const checked = area.querySelectorAll('.replace-row-check:checked').length;
+      applyBtn.textContent = `✅ Aplicar a ${checked} empresa${checked!==1?'s':''}`;
+      applyBtn.disabled = checked === 0;
+    };
+
+    area.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text2)">
+          <input type="checkbox" id="replace-select-all" checked style="accent-color:var(--accent)">
+          Seleccionar todas
+        </label>
+        <span id="replace-count-label" style="font-size:13px;color:var(--text2)">${data.length} empresa${data.length!==1?'s':''}</span>
+      </div>
+      <div style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <table class="replace-preview-table">
+          <thead><tr><th style="width:32px"></th><th>Antes</th><th></th><th>Después</th></tr></thead>
+          <tbody>
+            ${data.map((r, i) => `<tr>
+              <td onclick="event.stopPropagation()"><input type="checkbox" class="replace-row-check" data-idx="${i}" checked style="accent-color:var(--accent)"></td>
+              <td class="old-val">${r.old.replace(/</g,'&lt;')}</td>
+              <td class="arrow-cell">→</td>
+              <td class="new-val">${r.updated ? r.updated.replace(/</g,'&lt;') : '<em style="color:var(--text2)">(vacío)</em>'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
+    applyBtn.disabled = false;
+    applyBtn.textContent = `✅ Aplicar a ${data.length} empresa${data.length!==1?'s':''}`;
+
+    // Select-all toggle
+    area.querySelector('#replace-select-all').addEventListener('change', e => {
+      area.querySelectorAll('.replace-row-check').forEach(cb => cb.checked = e.target.checked);
+      updateApplyLabel();
+    });
+
+    // Individual checkbox change
+    area.querySelectorAll('.replace-row-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const all = area.querySelectorAll('.replace-row-check');
+        const checked = [...all].filter(c => c.checked).length;
+        area.querySelector('#replace-select-all').checked = checked === all.length;
+        area.querySelector('#replace-count-label').textContent = `${checked} de ${data.length} seleccionadas`;
+        updateApplyLabel();
+      });
+    });
+
+    // Apply — only selected
+    applyBtn.onclick = async () => {
+      const selected = [...area.querySelectorAll('.replace-row-check:checked')]
+        .map(cb => data[parseInt(cb.dataset.idx)].old);
+      if (!selected.length) return;
+      if (!confirm(`¿Aplicar cambios a ${selected.length} empresa${selected.length!==1?'s':''}?`)) return;
+      applyBtn.textContent = 'Aplicando…'; applyBtn.disabled = true;
+      const res = await apiFetch('/api/companies/bulk-replace', {
+        method: 'POST',
+        body: JSON.stringify({ find, replace, case_sensitive: cs, only: selected })
+      });
+      if (res?.ok) {
+        closeCleanupModal();
+        await loadCompanies();
+      } else {
+        applyBtn.textContent = `✅ Aplicar a ${selected.length} empresa${selected.length!==1?'s':''}`;
+        applyBtn.disabled = false;
+        alert('Error: ' + (res?.error || 'unknown'));
+      }
+    };
+  };
+
+  // Enter in find input triggers preview
+  document.getElementById('cleanup-find').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('cleanup-preview-btn').click();
+  });
+}
+
+// ── Column resize ─────────────────────────────────────────
+function initColumnResize(tableEl, storageKey) {
+  if (!tableEl) return;
+  const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+
+  const ths = tableEl.querySelectorAll('thead th');
+  ths.forEach((th, i) => {
+    // Apply saved width
+    if (saved[i]) th.style.width = saved[i] + 'px';
+
+    // Add resizer handle
+    const resizer = document.createElement('span');
+    resizer.className = 'col-resizer';
+    th.appendChild(resizer);
+
+    let startX, startW;
+
+    resizer.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      startX = e.clientX;
+      startW = th.offsetWidth;
+      resizer.classList.add('resizing');
+      tableEl.classList.add('resizing');
+
+      function onMove(e) {
+        const newW = Math.max(40, startW + e.clientX - startX);
+        th.style.width = newW + 'px';
+      }
+
+      function onUp() {
+        resizer.classList.remove('resizing');
+        tableEl.classList.remove('resizing');
+        // Save all widths
+        const widths = {};
+        ths.forEach((t, j) => { widths[j] = t.offsetWidth; });
+        localStorage.setItem(storageKey, JSON.stringify(widths));
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // Prevent sort trigger when clicking resizer
+    resizer.addEventListener('click', e => e.stopPropagation());
+  });
+}
+
+function renderPageBtns(currentPage, totalPages, btnClass) {
+  if (totalPages <= 1) return '';
+  const bc = btnClass || 'page-btn';
+  const btn = (pg, label, active) =>
+    `<button class="${bc} ${active?'active':''}" data-page="${pg}">${label}</button>`;
+  const sep = `<span style="color:var(--text2);align-self:center;padding:0 2px">…</span>`;
+
+  // Build visible page numbers (window of 5 around current)
+  const delta = 2;
+  const pages = new Set([1, totalPages]);
+  for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) pages.add(i);
+  const sorted = [...pages].sort((a, b) => a - b);
+
+  let btns = '';
+  // First page jump
+  btns += currentPage > 1 ? btn(1, '«', false) : '';
+  // Prev
+  btns += currentPage > 1 ? btn(currentPage - 1, '‹', false) : '';
+
+  let prev = 0;
+  for (const pg of sorted) {
+    if (prev && pg - prev > 1) btns += sep;
+    btns += btn(pg, pg, pg === currentPage);
+    prev = pg;
+  }
+
+  // Next
+  btns += currentPage < totalPages ? btn(currentPage + 1, '›', false) : '';
+  // Last page jump
+  btns += currentPage < totalPages ? btn(totalPages, '»', false) : '';
+
+  return btns;
+}
+
+function togglePanel(btnId, panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  const isHidden = panel.classList.contains('hidden');
+  document.querySelectorAll('.dropdown-panel').forEach(p => p.classList.add('hidden'));
+  if (isHidden) panel.classList.remove('hidden');
+  document.addEventListener('click', function handler(e) {
+    if (!panel.contains(e.target) && e.target.id !== btnId) {
+      panel.classList.add('hidden');
+      document.removeEventListener('click', handler);
+    }
+  }, true);
+}
+
+function bindContactsEvents() {
+  let t;
+  document.getElementById('search-input')?.addEventListener('input', e => {
+    clearTimeout(t);
+    t = setTimeout(() => { state.search = e.target.value; state.page = 1; loadContacts(); }, 350);
+  });
+  // Multi-select category panel
+  document.getElementById('category-btn')?.addEventListener('click', e => {
+    e.stopPropagation(); togglePanel('category-btn', 'category-panel');
+  });
+  document.querySelectorAll('.cat-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      state.selectedCategories = [...document.querySelectorAll('.cat-check:checked')].map(c => c.value);
+      state.page = 1; loadContacts();
+    });
+  });
+  // Multi-select campaign panel
+  document.getElementById('campaign-btn')?.addEventListener('click', e => {
+    e.stopPropagation(); togglePanel('campaign-btn', 'campaign-panel');
+  });
+  document.querySelectorAll('.camp-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      state.selectedCampaigns = [...document.querySelectorAll('.camp-check:checked')].map(c => c.value);
+      state.page = 1; loadContacts();
+    });
+  });
+  document.getElementById('clear-btn')?.addEventListener('click', () => {
+    state.search = ''; state.selectedCategories = []; state.selectedCampaigns = '';
+    state.activeFilters = []; state.selectedCampaigns = []; state.selectedCategories = [];
+    state.page = 1; loadContacts();
+  });
+  document.getElementById('export-btn')?.addEventListener('click', () => exportData());
+  document.getElementById('import-btn')?.addEventListener('click', openImportModal);
+  document.getElementById('limit-select')?.addEventListener('change', e => {
+    state.limit = parseInt(e.target.value); state.page = 1; loadContacts();
+  });
+  document.querySelectorAll('.page-btn[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => { state.page = parseInt(btn.dataset.page); loadContacts(); });
+  });
+  document.querySelectorAll('th.sortable[data-sort]').forEach(th => {
+    th.addEventListener('click', () => toggleSort(th.dataset.sort));
+  });
+  document.querySelectorAll('tr[data-email]').forEach(row => {
+    row.addEventListener('click', () => openDrawer(row.dataset.email));
+  });
+
+  // Checkboxes & bulk
+  document.getElementById('select-all')?.addEventListener('change', e => {
+    if (e.target.checked) state.contacts.forEach(c => state.selectedEmails.add(c.email));
+    else state.contacts.forEach(c => state.selectedEmails.delete(c.email));
+    loadContacts();
+  });
+  document.querySelectorAll('.row-check[data-email]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      e.target.checked ? state.selectedEmails.add(cb.dataset.email) : state.selectedEmails.delete(cb.dataset.email);
+      loadContacts();
+    });
+  });
+  document.getElementById('bulk-clear-sel')?.addEventListener('click', () => {
+    state.selectedEmails.clear(); loadContacts();
+  });
+  document.getElementById('bulk-apply-tag')?.addEventListener('click', async () => {
+    const tag_id = parseInt(document.getElementById('bulk-tag-select')?.value);
+    if (!tag_id || !state.selectedEmails.size) return;
+    const btn = document.getElementById('bulk-apply-tag');
+    btn.textContent = 'Applying...'; btn.disabled = true;
+    await apiFetch('/api/contacts/bulk-tag', {
+      method: 'POST', body: JSON.stringify({ emails: [...state.selectedEmails], tag_id })
+    });
+    const tag = state.tags.find(t => t.id === tag_id);
+    btn.textContent = `✓ Applied "${tag?.name}" to ${state.selectedEmails.size}`;
+    setTimeout(() => { state.selectedEmails.clear(); loadContacts(); }, 1200);
+  });
+
+  // Filter panel
+  document.getElementById('filter-btn')?.addEventListener('click', e => {
+    e.stopPropagation(); togglePanel('filter-btn', 'filter-panel');
+  });
+  // Show/hide value input based on operator
+  document.querySelectorAll('input[name="filter-op"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const nullOp = ['empty','not_empty'].includes(radio.value);
+      const inp = document.getElementById('filter-value');
+      if (inp) { inp.style.display = nullOp ? 'none' : ''; inp.placeholder = 'value...'; }
+    });
+  });
+
+  document.getElementById('filter-add-btn')?.addEventListener('click', () => {
+    const field = document.getElementById('filter-field')?.value;
+    const op = document.querySelector('input[name="filter-op"]:checked')?.value || 'contains';
+    const nullOp = ['empty','not_empty'].includes(op);
+    const value = nullOp ? '' : (document.getElementById('filter-value')?.value.trim() || '');
+    if (!field) return;
+    if (!nullOp && !value) return;
+    if (!state.activeFilters.find(f => f.field === field && f.value === value && f.op === op)) {
+      state.activeFilters.push({ field, value, op });
+    }
+    if (!nullOp) document.getElementById('filter-value').value = '';
+    state.page = 1; loadContacts();
+  });
+  document.getElementById('filter-value')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('filter-add-btn')?.click();
+  });
+  document.querySelectorAll('.filter-chip button[data-fi]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      state.activeFilters.splice(parseInt(btn.dataset.fi), 1);
+      state.page = 1; loadContacts();
+    });
+  });
+
+  // Columns panel
+  document.getElementById('columns-btn')?.addEventListener('click', e => {
+    e.stopPropagation(); togglePanel('columns-btn', 'columns-panel');
+  });
+  document.querySelectorAll('.col-check-item input[data-col]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.visibleCols.add(cb.dataset.col);
+      else state.visibleCols.delete(cb.dataset.col);
+      saveVisibleCols(state.visibleCols);
+      loadContacts();
+    });
+  });
+
+  // Column drag-and-drop reorder
+  let dragKey = null;
+  document.querySelectorAll('#col-order-list .col-check-item[draggable="true"]').forEach(item => {
+    item.addEventListener('dragstart', e => {
+      dragKey = item.dataset.colKey;
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    item.addEventListener('dragover', e => {
+      e.preventDefault();
+      document.querySelectorAll('#col-order-list .col-check-item').forEach(i => i.classList.remove('drag-over'));
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+    item.addEventListener('drop', e => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      if (!dragKey || dragKey === item.dataset.colKey) return;
+      const fromIdx = state.colOrder.findIndex(c => c.key === dragKey);
+      const toIdx   = state.colOrder.findIndex(c => c.key === item.dataset.colKey);
+      if (fromIdx < 0 || toIdx < 0) return;
+      const moved = state.colOrder.splice(fromIdx, 1)[0];
+      state.colOrder.splice(toIdx, 0, moved);
+      saveColOrder(state.colOrder);
+      render(); bindApp();
+    });
+  });
+
+  initColumnResize(document.querySelector('.table'), 'crm_col_widths_contacts');
+}
+
+// ═══════════════════════════════════════════════════════════
+// DATA ACTIONS
+// ═══════════════════════════════════════════════════════════
+async function loadAll() {
+  const [stats, campaigns, tags, cfKeys] = await Promise.all([
+    apiFetch('/api/stats'),
+    apiFetch(`/api/campaigns?sort_by=${state.campSort}&sort_dir=${state.campDir}${state.campSearch?'&search='+encodeURIComponent(state.campSearch):''}`),
+    apiFetch('/api/tags'),
+    apiFetch('/api/contacts/custom-field-keys'),
+  ]);
+  state.stats = stats;
+  state.campaigns = campaigns || [];
+  state.tags = tags || [];
+  state.customFieldKeys = cfKeys || [];
+  await loadContacts();
+}
+
+async function loadCompanies() {
+  const params = new URLSearchParams({
+    sort_by: state.compSort, sort_dir: state.compDir,
+    page: state.compPage, limit: state.compLimit,
+  });
+  if (state.compSearch) params.set('search', state.compSearch);
+  const data = await apiFetch('/api/companies?' + params);
+  state.companies = data?.rows || [];
+  state.compTotal = data?.total || 0;
+  render(); bindApp();
+}
+
+async function loadCampaignsOnly() {
+  const params = new URLSearchParams({ sort_by: state.campSort, sort_dir: state.campDir });
+  if (state.campSearch) params.set('search', state.campSearch);
+  const data = await apiFetch('/api/campaigns?' + params);
+  state.campaigns = data || [];
+  render(); bindApp();
+}
+
+async function loadContacts() {
+  const params = new URLSearchParams({
+    page: state.page, limit: state.limit,
+    sort_by: state.sort_by, sort_dir: state.sort_dir,
+    ...(state.search && { search: state.search }),
+    ...(state.selectedCampaigns.length && { campaign: state.selectedCampaigns.join('|||') }),
+    ...(state.selectedCategories.length && { category: state.selectedCategories.join('|||') }),
+    ...(state.activeFilters.length && { filters: JSON.stringify(state.activeFilters) }),
+  });
+  const data = await apiFetch(`/api/contacts?${params}`);
+  if (!data) return;
+  state.contacts = data.data;
+  state.total = data.total;
+  const main = document.getElementById('main-content');
+  if (main) { main.innerHTML = renderContacts(); bindContactsEvents(); }
+}
+
+async function openDrawer(email) {
+  state.drawerEmail = email;
+  state.drawerData = null;
+  state.drawerTags = [];
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer-overlay').classList.add('open');
+  document.getElementById('drawer').innerHTML = '<div class="loading" style="padding:60px"><div class="spinner"></div></div>';
+
+  const data = await apiFetch(`/api/contacts/${encodeURIComponent(email)}`);
+  if (data) {
+    state.drawerData = data;
+    state.drawerTags = data.tags || [];
+    refreshDrawerUI();
+  }
+}
+
+function closeDrawer() {
+  state.drawerEmail = null; state.drawerData = null; state.drawerEditing = false;
+  document.getElementById('drawer')?.classList.remove('open');
+  document.getElementById('drawer-overlay')?.classList.remove('open');
+}
+
+async function saveContactEdit() {
+  const inputs = document.querySelectorAll('.edit-input[data-field]');
+  const updates = {};
+  inputs.forEach(inp => { updates[inp.dataset.field] = inp.value.trim() || null; });
+  const res = await apiFetch(`/api/contacts/${encodeURIComponent(state.drawerEmail)}`, {
+    method: 'PATCH', body: JSON.stringify(updates)
+  });
+  if (res && res.ok !== false) {
+    state.drawerEditing = false;
+    openDrawer(state.drawerEmail);
+  }
+}
+
+function refreshDrawerUI() {
+  const drawer = document.getElementById('drawer');
+  const tmp = document.createElement('div');
+  tmp.innerHTML = renderDrawer();
+  drawer.innerHTML = tmp.querySelector('#drawer').innerHTML;
+  document.getElementById('close-drawer')?.addEventListener('click', closeDrawer);
+  document.getElementById('edit-btn')?.addEventListener('click', () => { state.drawerEditing = true; refreshDrawerUI(); });
+  document.getElementById('save-edit-btn')?.addEventListener('click', saveContactEdit);
+  document.getElementById('cancel-edit-btn')?.addEventListener('click', () => { state.drawerEditing = false; refreshDrawerUI(); });
+  document.getElementById('nota-save-btn')?.addEventListener('click', saveNote);
+  document.querySelectorAll('.nota-delete').forEach(btn => {
+    btn.addEventListener('click', () => deleteNote(btn.dataset.notaId));
+  });
+  // Tag events
+  document.getElementById('tag-picker')?.addEventListener('change', async e => {
+    const tag_id = parseInt(e.target.value);
+    if (!tag_id) return;
+    await apiFetch(`/api/contacts/${encodeURIComponent(state.drawerEmail)}/tags`, {
+      method: 'POST', body: JSON.stringify({ tag_id })
+    });
+    const tag = state.tags.find(t => t.id === tag_id);
+    if (tag) state.drawerTags = [...state.drawerTags, tag];
+    refreshDrawerUI();
+  });
+  document.querySelectorAll('.tag-remove[data-tid]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const tid = parseInt(btn.dataset.tid);
+      await apiFetch(`/api/contacts/${encodeURIComponent(btn.dataset.email)}/tags/${tid}`, { method: 'DELETE' });
+      state.drawerTags = state.drawerTags.filter(t => t.id !== tid);
+      refreshDrawerUI();
+    });
+  });
+  // Selected color for new tag
+  let selectedColor = TAG_COLORS[0];
+  document.querySelectorAll('.tag-color-opt').forEach(dot => {
+    dot.addEventListener('click', () => {
+      document.querySelectorAll('.tag-color-opt').forEach(d => d.style.border = '2px solid transparent');
+      dot.style.border = '2px solid white';
+      selectedColor = dot.dataset.color;
+    });
+  });
+  document.getElementById('create-tag-btn')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-tag-name')?.value.trim();
+    if (!name) return;
+    const tag = await apiFetch('/api/tags', { method: 'POST', body: JSON.stringify({ name, color: selectedColor }) });
+    if (tag && tag.id) {
+      state.tags = [...state.tags.filter(t => t.id !== tag.id), tag];
+      await apiFetch(`/api/contacts/${encodeURIComponent(state.drawerEmail)}/tags`, {
+        method: 'POST', body: JSON.stringify({ tag_id: tag.id })
+      });
+      state.drawerTags = [...state.drawerTags.filter(t => t.id !== tag.id), tag];
+    }
+    refreshDrawerUI();
+  });
+}
+
+async function saveNote() {
+  const input = document.getElementById('nota-input');
+  const note = input?.value.trim();
+  if (!note || !state.drawerEmail) return;
+  await apiFetch('/api/notes', { method: 'POST', body: JSON.stringify({ email: state.drawerEmail, note }) });
+  openDrawer(state.drawerEmail);
+}
+
+async function deleteNote(id) {
+  if (!confirm('Delete this note?')) return;
+  await apiFetch(`/api/notes/${id}`, { method: 'DELETE' });
+  openDrawer(state.drawerEmail);
+}
+
+function exportData(campaign, category) {
+  const params = new URLSearchParams({
+    ...(campaign || state.campaign ? { campaign: campaign || state.campaign } : {}),
+    ...(category || state.category ? { category: category || state.category } : {}),
+  });
+  window.location.href = `${API_BASE}/api/export?${params}&api_key=${API_KEY}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+if (API_KEY) { loadAll().then(render); } else { render(); }
+</script>
+</body>
+</html>
