@@ -1071,8 +1071,8 @@ function openChatModal(campName, d) {
 
   const messages = [];
   acts.forEach(a => {
-    if (a.sent_at) messages.push({ type:'sent', date: a.sent_at, seq: a.sequence_number, body: a.sent_email_body, opens: parseInt(a.open_count)||0, clicked: !!a.clicked_at });
-    if (a.replied_at && a.reply_message) messages.push({ type:'reply', date: a.replied_at, body: a.reply_message });
+    if (a.sent_email_body || a.sent_at) messages.push({ type:'sent', date: a.sent_at, seq: a.sequence_number, body: a.sent_email_body, opens: parseInt(a.open_count)||0, clicked: !!a.clicked_at });
+    if (a.reply_message) messages.push({ type:'reply', date: a.replied_at, body: a.reply_message });
   });
   if (cl?.reply_message && !acts.some(a => a.reply_message)) {
     messages.push({ type:'reply', date: cl.replied_at, body: cl.reply_message });
