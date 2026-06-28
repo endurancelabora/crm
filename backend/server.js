@@ -585,17 +585,27 @@ app.get('/api/campaigns', auth, async (req, res) => {
   }
 });
 
-// PATCH /api/campaigns/:name — rename campaign across all tables
+// PATCH /api/campaigns/:name — rename campaign across all tables (transactional)
 app.patch('/api/campaigns/:name', auth, async (req, res) => {
+  const client = await pool.connect();
   try {
     const oldName = decodeURIComponent(req.params.name);
     const { new_name } = req.body;
     if (!new_name || !new_name.trim()) return res.status(400).json({ error: 'new_name required' });
     const n = new_name.trim();
-    await pool.query(`UPDATE campaign_leads    SET campaign_name = $1 WHERE campaign_name = $2`, [n, oldName]);
-    await pool.query(`UPDATE campaign_activity SET campaign_name = $1 WHERE campaign_name = $2`, [n, oldName]);
-    res.json({ ok: true, old_name: oldName, new_name: n });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+
+    await client.query('BEGIN');
+    const r1 = await client.query(`UPDATE campaign_leads    SET campaign_name = $1 WHERE campaign_name = $2`, [n, oldName]);
+    const r2 = await client.query(`UPDATE campaign_activity SET campaign_name = $1 WHERE campaign_name = $2`, [n, oldName]);
+    await client.query('COMMIT');
+
+    res.json({ ok: true, old_name: oldName, new_name: n, updated: r1.rowCount + r2.rowCount });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 // ═══════════════════════════════════════════════════════════
