@@ -957,7 +957,9 @@ function renderDrawer() {
     <div class="drawer-header">
       <div>
         <div class="drawer-name">${fmtName(c)}</div>
-        <div class="drawer-email">${c.email}</div>
+        ${edit
+          ? `<input class="edit-input" id="edit-email-input" value="${(c.email||'').replace(/"/g,'&quot;')}" style="margin-top:4px;font-size:13px;width:240px" placeholder="email@dominio.com">`
+          : `<div class="drawer-email">${c.email}</div>`}
         ${c.no_contact ? '<span class="badge badge-red" style="margin-top:6px">No contact</span>' : ''}
         ${c.email_bounced ? '<span class="badge badge-amber" style="margin-top:6px;margin-left:4px">Bounced</span>' : ''}
       </div>
@@ -2337,13 +2339,28 @@ async function saveContactEdit() {
   const inputs = document.querySelectorAll('.edit-input[data-field]');
   const updates = {};
   inputs.forEach(inp => { updates[inp.dataset.field] = inp.value.trim() || null; });
+
+  // Save normal fields first (uses the current/old email in the URL)
   const res = await apiFetch(`/api/contacts/${encodeURIComponent(state.drawerEmail)}`, {
     method: 'PATCH', body: JSON.stringify(updates)
   });
-  if (res && res.ok !== false) {
-    state.drawerEditing = false;
-    openDrawer(state.drawerEmail);
+  if (!res || res.ok === false) { alert('Error al guardar: ' + (res?.error || 'desconocido')); return; }
+
+  // Handle email change (separate endpoint, cascades to related tables)
+  const emailInput = document.getElementById('edit-email-input');
+  const newEmail = (emailInput?.value || '').trim().toLowerCase();
+  if (newEmail && newEmail !== state.drawerEmail.toLowerCase()) {
+    if (!confirm(`¿Cambiar el email?\n\n${state.drawerEmail}\n→ ${newEmail}\n\nSe actualizarán también sus notas, campañas y etiquetas.`)) return;
+    const er = await apiFetch(`/api/contacts/${encodeURIComponent(state.drawerEmail)}/change-email`, {
+      method: 'POST', body: JSON.stringify({ new_email: newEmail })
+    });
+    if (!er || er.ok === false) { alert('No se pudo cambiar el email: ' + (er?.error || 'desconocido')); return; }
+    state.drawerEmail = er.email; // follow the renamed contact
   }
+
+  state.drawerEditing = false;
+  openDrawer(state.drawerEmail);
+  loadContacts(); // refresh the table behind the drawer
 }
 
 function refreshDrawerUI() {

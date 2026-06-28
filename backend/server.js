@@ -348,6 +348,32 @@ app.patch('/api/contacts/:email', auth, async (req, res) => {
   }
 });
 
+// Change a contact's email (primary key). ON UPDATE CASCADE propagates the
+// change to notes, campaign_leads, campaign_activity and contact_tags.
+app.post('/api/contacts/:email/change-email', auth, async (req, res) => {
+  try {
+    const oldEmail = req.params.email;
+    const newEmail = String(req.body.new_email || '').trim().toLowerCase();
+    if (!newEmail) return res.status(400).json({ error: 'Falta el nuevo email' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail))
+      return res.status(400).json({ error: 'Formato de email inválido' });
+    if (newEmail === oldEmail.toLowerCase())
+      return res.status(400).json({ error: 'El nuevo email es igual al actual' });
+
+    const exists = await pool.query('SELECT 1 FROM contacts WHERE LOWER(email) = $1', [newEmail]);
+    if (exists.rowCount) return res.status(409).json({ error: 'Ya existe un contacto con ese email' });
+
+    const upd = await pool.query(
+      'UPDATE contacts SET email = $1, updated_at = NOW() WHERE email = $2',
+      [newEmail, oldEmail]
+    );
+    if (!upd.rowCount) return res.status(404).json({ error: 'Contacto no encontrado' });
+    res.json({ ok: true, email: newEmail });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════
 // NOTES
 // ═══════════════════════════════════════════════════════════
