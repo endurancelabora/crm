@@ -30,6 +30,12 @@ pool.query(`
   );
 `).catch(e => console.error('tags table creation error:', e.message));
 
+// Add cleaned-value columns (keep originals intact for before/after comparison)
+pool.query(`
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS first_name_cleaned VARCHAR(255);
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS company_cleaned    VARCHAR(255);
+`).catch(e => console.error('contacts cleaned-columns migration error:', e.message));
+
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.static(path.join(__dirname, '../frontend')));
@@ -688,7 +694,8 @@ app.get('/api/export', auth, async (req, res) => {
 const CONTACT_FIELDS = new Set([
   'email','first_name','last_name','company','phone','job_title','department',
   'industry','city','state','country','company_url','linkedin_personal',
-  'linkedin_company','source','lead_category','elv_result','elv_esp'
+  'linkedin_company','source','lead_category','elv_result','elv_esp',
+  'first_name_cleaned','company_cleaned'
 ]);
 
 const CAMPAIGN_LEAD_FIELDS = new Set([
@@ -720,8 +727,9 @@ app.post('/api/import/contacts', auth, async (req, res) => {
         INSERT INTO contacts (
           email, first_name, last_name, company, phone, job_title, department,
           industry, city, state, country, company_url, linkedin_personal,
-          linkedin_company, source, lead_category, elv_result, elv_esp, custom_fields
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+          linkedin_company, source, lead_category, elv_result, elv_esp,
+          first_name_cleaned, company_cleaned, custom_fields
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
         ON CONFLICT (email) DO UPDATE SET
           first_name        = COALESCE(EXCLUDED.first_name, contacts.first_name),
           last_name         = COALESCE(EXCLUDED.last_name, contacts.last_name),
@@ -740,6 +748,8 @@ app.post('/api/import/contacts', auth, async (req, res) => {
           lead_category     = COALESCE(EXCLUDED.lead_category, contacts.lead_category),
           elv_result        = COALESCE(EXCLUDED.elv_result, contacts.elv_result),
           elv_esp           = COALESCE(EXCLUDED.elv_esp, contacts.elv_esp),
+          first_name_cleaned = COALESCE(EXCLUDED.first_name_cleaned, contacts.first_name_cleaned),
+          company_cleaned    = COALESCE(EXCLUDED.company_cleaned, contacts.company_cleaned),
           custom_fields     = contacts.custom_fields || EXCLUDED.custom_fields,
           updated_at        = NOW()
       `, [
@@ -749,7 +759,8 @@ app.post('/api/import/contacts', auth, async (req, res) => {
         toNull(row.industry), toNull(row.city), toNull(row.state),
         toNull(row.country), toNull(row.company_url), toNull(row.linkedin_personal),
         toNull(row.linkedin_company), toNull(row.source), toNull(row.lead_category),
-        toNull(row.elv_result), toNull(row.elv_esp), JSON.stringify(custom)
+        toNull(row.elv_result), toNull(row.elv_esp),
+        toNull(row.first_name_cleaned), toNull(row.company_cleaned), JSON.stringify(custom)
       ]);
       imported++;
     } catch (e) {

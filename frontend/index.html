@@ -287,7 +287,9 @@ let API_KEY = localStorage.getItem('crm_api_key') || '';
 
 const COLUMNS = [
   { key: 'contact',        label: 'Contact',       required: true },
+  { key: 'first_name_cleaned', label: 'Nombre limpio' },
   { key: 'company',        label: 'Company' },
+  { key: 'company_cleaned', label: 'Empresa limpia' },
   { key: 'job_title',      label: 'Job Title' },
   { key: 'industry',       label: 'Industry' },
   { key: 'city',           label: 'City' },
@@ -383,8 +385,10 @@ function toggleSort(col) {
 const COLUMN_MAP = {
   'correo electronico': 'email', 'lead email': 'email', 'email': 'email', 'business email': 'email',
   'nombre': 'first_name', 'first name': 'first_name', 'first_name': 'first_name',
+  'first_name_cleaned': 'first_name_cleaned',
   'apellido': 'last_name', 'last name': 'last_name', 'last_name': 'last_name',
   'empresa': 'company', 'company name': 'company', 'company': 'company',
+  'company_cleaned': 'company_cleaned',
   'telefono': 'phone', 'phone number': 'phone', 'phone': 'phone',
   'puesto': 'job_title', 'job_title': 'job_title', 'job title': 'job_title', 'job': 'job_title',
   'departamento': 'department', 'department': 'department',
@@ -419,7 +423,7 @@ const COLUMN_MAP = {
 };
 
 const KNOWN_FIELDS = {
-  contacts: new Set(['email','first_name','last_name','company','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp']),
+  contacts: new Set(['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp']),
   'campaign-leads': new Set(['email','campaign_name','campaign_id','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal']),
   'campaign-activity': new Set(['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed']),
 };
@@ -751,7 +755,9 @@ function renderContacts() {
           const stdCells = state.colOrder.filter(col => vc.has(col.key)).map(col => {
             switch(col.key) {
               case 'contact':        return `<td><div style="font-weight:500">${fmtName(c)}</div><div style="color:var(--text2);font-size:12px">${c.email}</div></td>`;
+              case 'first_name_cleaned': return `<td style="color:var(--text2)">${c.first_name_cleaned||'—'}</td>`;
               case 'company':        return `<td style="color:var(--text2)">${c.company||'—'}</td>`;
+              case 'company_cleaned': return `<td style="color:var(--text2)">${c.company_cleaned||'—'}</td>`;
               case 'job_title':      return `<td style="color:var(--text2)">${c.job_title||'—'}</td>`;
               case 'industry':       return `<td style="color:var(--text2)">${c.industry||'—'}</td>`;
               case 'city':           return `<td style="color:var(--text2)">${c.city||'—'}</td>`;
@@ -1353,7 +1359,7 @@ function loadFile(file) {
 }
 
 const ALL_FIELDS = {
-  contacts: ['email','first_name','last_name','company','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp'],
+  contacts: ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp'],
   'campaign-leads': ['email','campaign_name','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal'],
   'campaign-activity': ['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed'],
 };
@@ -1621,10 +1627,10 @@ function applyCleaning() {
       for (const r of importState.rows) {
         const before = r[col];
         const after = cleanCompanyName(before);
-        if (after !== before) changed++;
-        r[col] = after;
+        if (after !== (before || '')) changed++;
+        r.company_cleaned = after;   // nueva columna, deja el original intacto
       }
-      msgs.push(`✅ Empresa: ${changed.toLocaleString()} de ${importState.rows.length.toLocaleString()} valores limpiados (columna "${col}").`);
+      msgs.push(`✅ Empresa: ${changed.toLocaleString()} de ${importState.rows.length.toLocaleString()} valores corregidos → columna nueva "company_cleaned" (original "${col}" intacto).`);
     }
   }
   if (document.getElementById('clean-greeting')?.checked) {
@@ -1639,11 +1645,10 @@ function applyCleaning() {
       let valid = 0;
       for (const r of importState.rows) {
         const res = generateGreetingName(r[fcol], lcol ? r[lcol] : '');
-        r.greeting_name = res.greeting_name;
-        r.nombre_correcto = res.nombre_correcto;
+        r.first_name_cleaned = res.greeting_name;   // nueva columna, deja el original intacto
         if (res.nombre_correcto === 1) valid++;
       }
-      msgs.push(`✅ Saludo: ${valid.toLocaleString()} de ${importState.rows.length.toLocaleString()} nombres válidos → columnas nuevas "greeting_name" y "nombre_correcto".`);
+      msgs.push(`✅ Nombre: ${valid.toLocaleString()} de ${importState.rows.length.toLocaleString()} nombres válidos → columna nueva "first_name_cleaned" (original "${fcol}" intacto).`);
     }
   }
   if (!msgs.length) msgs.push('No seleccionaste ninguna limpieza.');
@@ -1688,11 +1693,11 @@ function renderImport() {
       <div style="font-weight:600;margin-bottom:8px">3 · Limpieza de datos</div>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
         <input type="checkbox" id="clean-company" checked>
-        Limpiar nombre de empresa <span style="color:var(--text2);font-size:11px">— encoding, dominios/URLs, sufijos legales (SA DE CV…), Title Case, acrónimos</span>
+        Limpiar nombre de empresa <span style="color:var(--text2);font-size:11px">— encoding, dominios/URLs, sufijos legales… → <strong>company_cleaned</strong> (deja "company" original)</span>
       </label>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
         <input type="checkbox" id="clean-greeting" checked>
-        Generar nombre de saludo <span style="color:var(--text2);font-size:11px">— limpia el nombre, quita títulos (Lic, Ing…), descarta genéricos/departamentos → greeting_name + nombre_correcto</span>
+        Limpiar nombre de pila <span style="color:var(--text2);font-size:11px">— quita títulos (Lic, Ing…), descarta genéricos/departamentos → <strong>first_name_cleaned</strong> (deja "first_name" original)</span>
       </label>
       <div style="font-size:11px;color:var(--text2);margin:6px 0 4px">Aplica la limpieza sobre los datos cargados y revisa el resultado en la vista previa de arriba antes de mapear.</div>
       <button class="btn btn-secondary" id="clean-btn" style="margin-top:8px">Aplicar limpieza</button>
