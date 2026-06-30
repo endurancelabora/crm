@@ -330,6 +330,7 @@ const FILTER_FIELDS = [
 ];
 
 const TAG_COLORS = ['#5b6af0','#22c55e','#f59e0b','#ef4444','#3b82f6','#a855f7','#ec4899','#14b8a6','#f97316','#64748b'];
+let headerTagColor = TAG_COLORS[0]; // selected color for the header Tags panel
 
 let state = {
   view: 'contacts',
@@ -586,6 +587,12 @@ function renderContacts() {
       <div class="page-subtitle">${state.total.toLocaleString()} contacts found</div>
     </div>
     <div class="header-actions">
+      <div class="panel-wrap">
+        <button class="btn btn-ghost" id="tags-btn" title="Gestionar tags">🏷 Tags</button>
+        <div class="dropdown-panel hidden" id="tags-panel" style="min-width:280px">
+          <div id="tags-panel-inner">${renderTagsPanelInner()}</div>
+        </div>
+      </div>
       <div class="panel-wrap">
         <button class="btn btn-ghost" id="filter-btn">⊕ Filter${state.activeFilters.length ? ` (${state.activeFilters.length})` : ''}</button>
         <div class="dropdown-panel hidden" id="filter-panel" style="min-width:300px">
@@ -2107,6 +2114,63 @@ function togglePanel(btnId, panelId) {
   }, true);
 }
 
+// ─── Header Tags panel (create / list / delete tags) ───────
+function renderTagsPanelInner() {
+  return `
+    <div class="panel-title">Tags</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input id="new-tag-name-hdr" placeholder="Nuevo tag..." maxlength="40"
+        style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text);font-size:13px;outline:none">
+      <button class="btn btn-primary" id="create-tag-hdr" style="padding:6px 14px">Crear</button>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      ${TAG_COLORS.map(c => `<span class="tag-color-hdr" data-color="${c}" title="${c}" style="width:20px;height:20px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${c===headerTagColor?'#fff':'transparent'}"></span>`).join('')}
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:10px;max-height:240px;overflow:auto">
+      ${state.tags && state.tags.length ? state.tags.map(t => `
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+          ${renderTagPill(t)}
+          <span style="flex:1"></span>
+          <button class="tag-delete-hdr" data-tid="${t.id}" data-name="${(t.name||'').replace(/"/g,'&quot;')}" title="Eliminar tag" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:2px 6px">✕</button>
+        </div>`).join('') : '<div style="color:var(--text2);font-size:12px">Aún no hay tags. Crea el primero arriba.</div>'}
+    </div>`;
+}
+
+function bindTagsPanel() {
+  document.querySelectorAll('.tag-color-hdr').forEach(dot => {
+    dot.addEventListener('click', () => {
+      headerTagColor = dot.dataset.color;
+      document.querySelectorAll('.tag-color-hdr').forEach(d => d.style.border = '2px solid ' + (d.dataset.color === headerTagColor ? '#fff' : 'transparent'));
+    });
+  });
+  document.getElementById('create-tag-hdr')?.addEventListener('click', createTagFromHeader);
+  document.getElementById('new-tag-name-hdr')?.addEventListener('keydown', e => { if (e.key === 'Enter') createTagFromHeader(); });
+  document.querySelectorAll('.tag-delete-hdr').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`¿Eliminar el tag "${btn.dataset.name}"? Se quitará de todos los contactos.`)) return;
+      await apiFetch(`/api/tags/${btn.dataset.tid}`, { method: 'DELETE' });
+      state.tags = (state.tags || []).filter(t => t.id !== parseInt(btn.dataset.tid));
+      refreshTagsPanel();
+    });
+  });
+}
+
+async function createTagFromHeader() {
+  const inp = document.getElementById('new-tag-name-hdr');
+  const name = (inp?.value || '').trim();
+  if (!name) return;
+  const tag = await apiFetch('/api/tags', { method: 'POST', body: JSON.stringify({ name, color: headerTagColor }) });
+  if (tag && tag.id) {
+    state.tags = [...(state.tags || []).filter(t => t.id !== tag.id), tag].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }
+  refreshTagsPanel();
+}
+
+function refreshTagsPanel() {
+  const inner = document.getElementById('tags-panel-inner');
+  if (inner) { inner.innerHTML = renderTagsPanelInner(); bindTagsPanel(); }
+}
+
 function bindContactsEvents() {
   let t;
   document.getElementById('search-input')?.addEventListener('input', e => {
@@ -2180,6 +2244,12 @@ function bindContactsEvents() {
     btn.textContent = `✓ Applied "${tag?.name}" to ${state.selectedEmails.size}`;
     setTimeout(() => { state.selectedEmails.clear(); loadContacts(); }, 1200);
   });
+
+  // Tags panel
+  document.getElementById('tags-btn')?.addEventListener('click', e => {
+    e.stopPropagation(); togglePanel('tags-btn', 'tags-panel');
+  });
+  bindTagsPanel();
 
   // Filter panel
   document.getElementById('filter-btn')?.addEventListener('click', e => {
