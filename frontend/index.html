@@ -712,6 +712,10 @@ function renderContacts() {
         </label>`).join('')}
         <div id="camp-no-results" style="display:none;color:var(--text2);font-size:12px;padding:6px 4px">Sin coincidencias</div>
         </div>
+        <div style="display:flex;gap:8px;border-top:1px solid var(--border);padding-top:10px;margin-top:8px">
+          <button class="btn btn-ghost" id="camp-clear-sel" style="padding:6px 12px;font-size:12px">Limpiar</button>
+          <button class="btn btn-primary" id="camp-apply" style="padding:6px 16px;font-size:12px;margin-left:auto">Aplicar</button>
+        </div>
       </div>
     </div>
     <button class="btn btn-ghost" id="clear-btn">Clear</button>
@@ -2263,11 +2267,15 @@ function bindContactsEvents() {
     const nr = document.getElementById('camp-no-results');
     if (nr) nr.style.display = any ? 'none' : '';
   });
-  document.querySelectorAll('.camp-check').forEach(cb => {
-    cb.addEventListener('change', () => {
-      state.selectedCampaigns = [...document.querySelectorAll('.camp-check:checked')].map(c => c.value);
-      state.page = 1; loadContacts();
-    });
+  // Campaigns apply on button click (panel stays open while picking)
+  document.getElementById('camp-apply')?.addEventListener('click', () => {
+    state.selectedCampaigns = [...document.querySelectorAll('.camp-check:checked')].map(c => c.value);
+    state.page = 1;
+    document.getElementById('campaign-panel')?.classList.add('hidden');
+    loadContacts();
+  });
+  document.getElementById('camp-clear-sel')?.addEventListener('click', () => {
+    document.querySelectorAll('.camp-check').forEach(cb => cb.checked = false);
   });
   document.getElementById('clear-btn')?.addEventListener('click', () => {
     state.search = ''; state.selectedCategories = []; state.selectedCampaigns = '';
