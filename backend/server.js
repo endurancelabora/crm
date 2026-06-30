@@ -175,13 +175,20 @@ app.get('/api/contacts', auth, async (req, res) => {
     // Multi-campaign filter (comma-separated)
     if (campaign) {
       const campsArr = campaign.split('|||').map(s => s.trim()).filter(Boolean);
-      if (campsArr.length === 1) {
-        conditions.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name ILIKE $${p})`);
-        params.push(`%${campsArr[0]}%`); p++;
-      } else if (campsArr.length > 1) {
-        conditions.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name = ANY($${p}))`);
-        params.push(campsArr); p++;
+      const wantNoCampaign = campsArr.includes('__no_campaign__');
+      const realCamps = campsArr.filter(c => c !== '__no_campaign__');
+      const orParts = [];
+      if (realCamps.length === 1) {
+        orParts.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name ILIKE $${p})`);
+        params.push(`%${realCamps[0]}%`); p++;
+      } else if (realCamps.length > 1) {
+        orParts.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name = ANY($${p}))`);
+        params.push(realCamps); p++;
       }
+      if (wantNoCampaign) {
+        orParts.push(`NOT EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email)`);
+      }
+      if (orParts.length) conditions.push('(' + orParts.join(' OR ') + ')');
     }
     // Multi-category filter (comma-separated)
     if (category) {
