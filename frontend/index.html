@@ -581,15 +581,21 @@ function renderContacts() {
   const sel = state.selectedEmails;
   const allSelected = state.contacts.length > 0 && state.contacts.every(c => sel.has(c.email));
 
+  const moreThanPage = state.total > state.contacts.length;
+  const allMatchingSelected = state.total > 0 && sel.size >= state.total;
   const bulkBar = sel.size > 0 ? `
     <div class="bulk-bar">
-      <span>${sel.size} contact${sel.size>1?'s':''} selected</span>
+      <span>${sel.size.toLocaleString()} contacto${sel.size>1?'s':''} seleccionado${sel.size>1?'s':''}</span>
+      ${allSelected && moreThanPage && !allMatchingSelected
+        ? `<button class="btn-bulk" id="bulk-select-all-matching">Seleccionar los ${state.total.toLocaleString()} que coinciden con el filtro</button>` : ''}
+      ${allMatchingSelected && moreThanPage
+        ? `<span style="opacity:.85;font-weight:400">✓ Todos los que coinciden con el filtro</span>` : ''}
       <select id="bulk-tag-select">
         <option value="">Add tag...</option>
         ${state.tags.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
       </select>
       <button class="btn-bulk" id="bulk-apply-tag">Apply</button>
-      <button class="btn-bulk-clear" id="bulk-clear-sel" title="Clear selection">✕</button>
+      <button class="btn-bulk-clear" id="bulk-clear-sel" title="Quitar selección">✕</button>
     </div>` : '';
 
   const filterChips = state.activeFilters.map((f,i) => {
@@ -2293,6 +2299,13 @@ function bindContactsEvents() {
   document.getElementById('bulk-clear-sel')?.addEventListener('click', () => {
     state.selectedEmails.clear(); loadContacts();
   });
+  document.getElementById('bulk-select-all-matching')?.addEventListener('click', async () => {
+    const btn = document.getElementById('bulk-select-all-matching');
+    if (btn) { btn.textContent = 'Seleccionando...'; btn.disabled = true; }
+    const data = await apiFetch(`/api/contacts?${contactsQueryParams({ emails_only: '1' })}`);
+    if (data && data.emails) data.emails.forEach(e => state.selectedEmails.add(e));
+    loadContacts();
+  });
   document.getElementById('bulk-apply-tag')?.addEventListener('click', async () => {
     const tag_id = parseInt(document.getElementById('bulk-tag-select')?.value);
     if (!tag_id || !state.selectedEmails.size) return;
@@ -2437,15 +2450,19 @@ async function loadCampaignsOnly() {
   render(); bindApp();
 }
 
-async function loadContacts() {
-  const params = new URLSearchParams({
-    page: state.page, limit: state.limit,
+function contactsQueryParams(extra = {}) {
+  return new URLSearchParams({
     sort_by: state.sort_by, sort_dir: state.sort_dir,
     ...(state.search && { search: state.search }),
     ...(state.selectedCampaigns.length && { campaign: state.selectedCampaigns.join('|||') }),
     ...(state.selectedCategories.length && { category: state.selectedCategories.join('|||') }),
     ...(state.activeFilters.length && { filters: JSON.stringify(state.activeFilters) }),
+    ...extra,
   });
+}
+
+async function loadContacts() {
+  const params = contactsQueryParams({ page: state.page, limit: state.limit });
   const data = await apiFetch(`/api/contacts?${params}`);
   if (!data) return;
   state.contacts = data.data;

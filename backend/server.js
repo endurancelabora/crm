@@ -261,6 +261,14 @@ app.get('/api/contacts', auth, async (req, res) => {
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Lightweight mode: return only the matching emails across ALL pages (no limit),
+    // used by "select all matching" in the UI.
+    if (req.query.emails_only === '1') {
+      const r = await pool.query(`SELECT c.email FROM contacts c ${where} ORDER BY c.email`, params);
+      return res.json({ emails: r.rows.map(x => x.email) });
+    }
+
     const orderCol = SORTABLE_COLS[sort_by] || 'c.email';
     const orderDir = sort_dir === 'DESC' ? 'DESC' : 'ASC';
 
@@ -911,15 +919,14 @@ app.post('/api/contacts/bulk-tag', auth, async (req, res) => {
   try {
     const { emails, tag_id } = req.body;
     if (!Array.isArray(emails) || !tag_id) return res.status(400).json({ error: 'emails[] and tag_id required' });
-    let inserted = 0;
-    for (const email of emails) {
-      await pool.query(
-        `INSERT INTO contact_tags (contact_email, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [email, tag_id]
-      );
-      inserted++;
-    }
-    res.json({ ok: true, inserted });
+    if (!emails.length) return res.json({ ok: true, inserted: 0 });
+    const r = await pool.query(
+      `INSERT INTO contact_tags (contact_email, tag_id)
+       SELECT e, $2 FROM UNNEST($1::text[]) AS e
+       ON CONFLICT DO NOTHING`,
+      [emails, tag_id]
+    );
+    res.json({ ok: true, inserted: r.rowCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
