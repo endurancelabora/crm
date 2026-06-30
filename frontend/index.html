@@ -549,6 +549,7 @@ function renderApp() {
       <div class="nav-item ${state.view==='contacts'?'active':''}" data-view="contacts"><span class="nav-icon">👥</span> Contacts</div>
       <div class="nav-item ${state.view==='companies'?'active':''}" data-view="companies"><span class="nav-icon">🏢</span> Companies</div>
       <div class="nav-item ${state.view==='campaigns'?'active':''}" data-view="campaigns"><span class="nav-icon">📣</span> Campaigns</div>
+      <div class="nav-item ${state.view==='import'?'active':''}" data-view="import"><span class="nav-icon">📥</span> Import</div>
       <div class="nav-item ${state.view==='admin'?'active':''}" data-view="admin" style="margin-top:auto"><span class="nav-icon">⚙</span> Admin</div>
       <div style="margin-top:auto; padding: 16px 20px;">
         <button class="btn btn-ghost" id="theme-toggle-btn" style="width:100%;font-size:12px;margin-bottom:8px">${getTheme()==='light' ? '🌙 Modo noche' : '☀️ Modo día'}</button>
@@ -557,7 +558,7 @@ function renderApp() {
       </div>
     </aside>
     <div class="main" id="main-content">
-      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
+      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'import' ? renderImport() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
     </div>
   </div>
   ${renderDrawer()}
@@ -1316,8 +1317,8 @@ function closeImportModal() {
 }
 
 function bindImportModal() {
-  document.getElementById('close-import').addEventListener('click', closeImportModal);
-  document.getElementById('cancel-import').addEventListener('click', closeImportModal);
+  document.getElementById('close-import')?.addEventListener('click', closeImportModal);
+  document.getElementById('cancel-import')?.addEventListener('click', closeImportModal);
 
   document.querySelectorAll('.import-type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1405,6 +1406,10 @@ function processFile() {
   document.getElementById('apply-mapping').style.display = 'inline-flex';
   document.getElementById('confirm-import').disabled = true;
   document.getElementById('confirm-import').textContent = 'Import';
+
+  // Raw data preview (only present in the Import section, not the modal)
+  const dp = document.getElementById('import-data-preview');
+  if (dp) dp.innerHTML = renderRawPreview();
 }
 
 function applyUserMapping() {
@@ -1485,6 +1490,81 @@ async function runImport() {
   btn.onclick = () => { closeImportModal(); loadAll(); };
 }
 
+// ─── Import as a full section (reuses the modal flow functions) ────
+function renderImport() {
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Importar datos</div>
+      <div class="page-subtitle">Carga un CSV, revísalo, límpialo y envíalo a Contactos</div>
+    </div>
+  </div>
+  <div style="padding:24px 32px;max-width:1100px">
+
+    <div class="stat-card" style="margin-bottom:18px">
+      <div style="font-weight:600;margin-bottom:6px">1 · Tipo de datos y archivo</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Selecciona qué estás importando:</div>
+      <div class="import-type-grid">
+        <div class="import-type-btn ${importState.type==='contacts'?'selected':''}" data-type="contacts">
+          <div class="import-type-icon">👥</div><div class="import-type-label">Contacts</div>
+        </div>
+        <div class="import-type-btn ${importState.type==='campaign-leads'?'selected':''}" data-type="campaign-leads">
+          <div class="import-type-icon">📋</div><div class="import-type-label">Campaign Leads</div>
+        </div>
+        <div class="import-type-btn ${importState.type==='campaign-activity'?'selected':''}" data-type="campaign-activity">
+          <div class="import-type-icon">📊</div><div class="import-type-label">Campaign Activity</div>
+        </div>
+      </div>
+      <div class="file-drop" id="file-drop" style="margin-top:14px">
+        <div class="file-drop-icon">📄</div>
+        <div class="file-drop-text">Arrastra tu CSV aquí o <strong id="file-browse">haz clic para buscar</strong></div>
+        <input type="file" id="file-input" accept=".csv" style="display:none">
+      </div>
+    </div>
+
+    <div id="import-data-preview"></div>
+
+    <div class="stat-card" style="margin-bottom:18px;border-style:dashed">
+      <div style="font-weight:600;margin-bottom:6px">3 · Limpieza de datos <span style="color:var(--amber);font-size:11px">(próximamente)</span></div>
+      <div style="font-size:12px;color:var(--text2)">Aquí se aplicará tu proceso de limpieza. Pásame tu código y lo conecto en este paso (normalización, deduplicado, formato de fechas, etc.).</div>
+      <button class="btn btn-ghost" id="clean-btn" disabled style="margin-top:10px;opacity:.6;cursor:not-allowed">Aplicar limpieza</button>
+    </div>
+
+    <div class="stat-card">
+      <div style="font-weight:600;margin-bottom:10px">4 · Mapeo y envío a Contactos</div>
+      <div id="import-preview-area"><div style="font-size:12px;color:var(--text2)">Carga un archivo arriba para mapear las columnas.</div></div>
+      <div id="import-status" style="font-size:13px;color:var(--text2);min-height:20px;margin-top:10px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button class="btn btn-secondary" id="apply-mapping" style="display:none">Apply Mapping</button>
+        <button class="btn btn-primary" id="confirm-import" disabled>Import</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderRawPreview() {
+  if (!importState.rows.length) return '';
+  const headers = Object.keys(importState.rows[0]);
+  const sample = importState.rows.slice(0, 15);
+  const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;');
+  return `
+    <div class="stat-card" style="margin-bottom:18px;padding:0;overflow:hidden">
+      <div style="font-weight:600;padding:14px 16px 8px">2 · Vista previa de datos
+        <span style="color:var(--text2);font-size:11px;font-weight:400">— ${importState.rows.length.toLocaleString()} filas, ${headers.length} columnas (primeras ${sample.length})</span>
+      </div>
+      <div style="overflow:auto;max-height:340px">
+        <table style="border-collapse:collapse;font-size:12px;white-space:nowrap">
+          <thead><tr>${headers.map(h => `<th style="position:sticky;top:0;background:var(--bg3);color:var(--text2);text-align:left;padding:6px 10px;font-weight:600;border-bottom:1px solid var(--border)">${esc(h)}</th>`).join('')}</tr></thead>
+          <tbody>${sample.map(r => `<tr>${headers.map(h => `<td style="padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text2);max-width:240px;overflow:hidden;text-overflow:ellipsis" title="${esc(r[h]).replace(/"/g,'&quot;')}">${esc(String(r[h] == null ? '' : r[h]).slice(0,60))}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function bindImport() {
+  bindImportModal();
+}
+
 // ═══════════════════════════════════════════════════════════
 // EVENTS
 // ═══════════════════════════════════════════════════════════
@@ -1492,6 +1572,7 @@ function bindApp() {
   document.querySelectorAll('.nav-item[data-view]').forEach(el => {
     el.addEventListener('click', () => {
       state.view = el.dataset.view;
+      if (state.view === 'import') importState = { type: 'contacts', file: null, rows: [], mapped: [], mappedCols: [], customCols: [] };
       render();
       if (state.view === 'companies') loadCompanies();
     });
@@ -1505,6 +1586,7 @@ function bindApp() {
   if (state.view === 'campaigns') bindCampaignEvents();
   if (state.view === 'companies') bindCompanyEvents();
   if (state.view === 'admin') bindAdminEvents();
+  if (state.view === 'import') bindImport();
 
   document.getElementById('drawer-overlay')?.addEventListener('click', closeDrawer);
   document.getElementById('close-drawer')?.addEventListener('click', closeDrawer);
