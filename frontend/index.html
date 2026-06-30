@@ -1565,6 +1565,47 @@ function cleanCompanyName(companyName) {
   return text;
 }
 
+// ─── Data cleaning: greeting name (adapted from the user's Node script) ──
+const badNames = new Set([
+  'Administracion','Administración','Comercio','Trafico','Tráfico','Logistica','Logística','Operaciones','Compras',
+  'Importacion','Importación','Importaciones','Exportacion','Exportación','Embarque','Recepcion','Recepción','Ventas',
+  'Recursos','Humanos','Admin','Info','Contacto','Usuario','Team','Customer','Service','Gerente','Finance','Accounting',
+  'Rh','Proteak','Ensambladores','Direccion','Dirección','Asistente','Auxiliar','Coordinacion','Coordinación','Gerencia',
+  'Departamento','Corporativo','Empresa','Facturacion','Facturación','Sistemas','Almacen','Almacén','Credito','Crédito',
+  'Cobranza','Atencion','Atención','Lic','Ing','Dr','Dra','Mtro','Mtra','Mttra','Cp','Arq','Sr','Sra','Srta','Licenciado','Ingeniero',
+]);
+
+function generateGreetingName(firstName, lastName) {
+  if (!firstName) return { greeting_name: null, nombre_correcto: 0 };
+  let name = fixEncoding(String(firstName).trim());
+  const last = fixEncoding(String(lastName || '')).trim().toLowerCase();
+
+  if (name.toLowerCase() === 'a' && last.includes('quien')) return { greeting_name: null, nombre_correcto: 0 };
+
+  const titles = [
+    /^Lic\.?\s+/i, /^Ing\.?\s+/i, /^Dr\.?\s+/i, /^Dra\.?\s+/i, /^Mtro\.?\s+/i, /^Mtra\.?\s+/i, /^Mttra\.?\s+/i,
+    /^Cp\.?\s+/i, /^C\.?\s*P\.?\s+/i, /^Sr\.?\s+/i, /^Sra\.?\s+/i, /^Srta\.?\s+/i, /^Arq\.?\s+/i, /^Licenciado\s+/i, /^Ingeniero\s+/i,
+  ];
+  for (const pattern of titles) name = name.replace(pattern, '');
+
+  if (/^(Lic|Ing|Dr|Dra|Mtro|Mtra|Mttra|Cp|Arq|Sr|Sra|Srta|Licenciado|Ingeniero)\.?$/i.test(name.trim()))
+    return { greeting_name: null, nombre_correcto: 0 };
+
+  name = name.replace(/^[A-ZÁÉÍÓÚÑ]\.\s+/i, '');   // J. Luis -> Luis
+  name = name.replace(/\s+/g, ' ').trim();
+  if (!name) return { greeting_name: null, nombre_correcto: 0 };
+
+  name = toTitleCase(name);
+  const greetingName = name.split(' ')[0];
+
+  if (/^[A-ZÁÉÍÓÚÑ]\.$/i.test(greetingName)) return { greeting_name: null, nombre_correcto: 0 };
+  if (greetingName.length <= 1) return { greeting_name: null, nombre_correcto: 0 };
+  if (/\d/.test(greetingName)) return { greeting_name: null, nombre_correcto: 0 };
+  if (badNames.has(greetingName)) return { greeting_name: null, nombre_correcto: 0 };
+
+  return { greeting_name: greetingName, nombre_correcto: 1 };
+}
+
 // Apply enabled cleaners to the loaded rows (in place); returns a summary.
 function applyCleaning() {
   if (!importState.rows.length) return { ok: false, msg: 'Primero carga un archivo CSV.' };
@@ -1584,6 +1625,25 @@ function applyCleaning() {
         r[col] = after;
       }
       msgs.push(`✅ Empresa: ${changed.toLocaleString()} de ${importState.rows.length.toLocaleString()} valores limpiados (columna "${col}").`);
+    }
+  }
+  if (document.getElementById('clean-greeting')?.checked) {
+    const headers = Object.keys(importState.rows[0]);
+    const firstCands = ['first name','first_name','nombre','firstname','first'];
+    const lastCands = ['last name','last_name','apellido','lastname','last'];
+    const fcol = headers.find(h => firstCands.includes(h.toLowerCase().trim()));
+    const lcol = headers.find(h => lastCands.includes(h.toLowerCase().trim()));
+    if (!fcol) {
+      msgs.push('⚠️ No encontré columna de nombre ("First Name"/"Nombre") para el saludo.');
+    } else {
+      let valid = 0;
+      for (const r of importState.rows) {
+        const res = generateGreetingName(r[fcol], lcol ? r[lcol] : '');
+        r.greeting_name = res.greeting_name;
+        r.nombre_correcto = res.nombre_correcto;
+        if (res.nombre_correcto === 1) valid++;
+      }
+      msgs.push(`✅ Saludo: ${valid.toLocaleString()} de ${importState.rows.length.toLocaleString()} nombres válidos → columnas nuevas "greeting_name" y "nombre_correcto".`);
     }
   }
   if (!msgs.length) msgs.push('No seleccionaste ninguna limpieza.');
@@ -1629,6 +1689,10 @@ function renderImport() {
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
         <input type="checkbox" id="clean-company" checked>
         Limpiar nombre de empresa <span style="color:var(--text2);font-size:11px">— encoding, dominios/URLs, sufijos legales (SA DE CV…), Title Case, acrónimos</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
+        <input type="checkbox" id="clean-greeting" checked>
+        Generar nombre de saludo <span style="color:var(--text2);font-size:11px">— limpia el nombre, quita títulos (Lic, Ing…), descarta genéricos/departamentos → greeting_name + nombre_correcto</span>
       </label>
       <div style="font-size:11px;color:var(--text2);margin:6px 0 4px">Aplica la limpieza sobre los datos cargados y revisa el resultado en la vista previa de arriba antes de mapear.</div>
       <button class="btn btn-secondary" id="clean-btn" style="margin-top:8px">Aplicar limpieza</button>
