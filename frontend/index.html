@@ -338,6 +338,7 @@ const TAG_COLORS = ['#5b6af0','#22c55e','#f59e0b','#ef4444','#3b82f6','#a855f7',
   '#84cc16','#06b6d4','#6366f1','#f43f5e','#10b981','#eab308','#0ea5e9','#8b5cf6','#d946ef','#78716c',
   '#dc2626','#16a34a','#2563eb','#db2777'];
 let headerTagColor = TAG_COLORS[0]; // selected color for the header Tags panel
+let editingTagId = null; // id of the tag being edited in the header Tags panel
 
 let state = {
   view: 'contacts',
@@ -2140,21 +2141,24 @@ function togglePanel(btnId, panelId) {
 
 // ─── Header Tags panel (create / list / delete tags) ───────
 function renderTagsPanelInner() {
+  const editing = editingTagId ? (state.tags || []).find(t => t.id === editingTagId) : null;
   return `
-    <div class="panel-title">Tags</div>
+    <div class="panel-title">Tags${editing ? ' · editando' : ''}</div>
     <div style="display:flex;gap:6px;margin-bottom:8px">
-      <input id="new-tag-name-hdr" placeholder="Nuevo tag..." maxlength="40"
+      <input id="new-tag-name-hdr" placeholder="${editing ? 'Nuevo nombre...' : 'Nuevo tag...'}" maxlength="40" value="${editing ? (editing.name||'').replace(/"/g,'&quot;') : ''}"
         style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text);font-size:13px;outline:none">
-      <button class="btn btn-primary" id="create-tag-hdr" style="padding:6px 14px">Crear</button>
+      <button class="btn btn-primary" id="create-tag-hdr" style="padding:6px 14px">${editing ? 'Guardar' : 'Crear'}</button>
+      ${editing ? '<button class="btn btn-ghost" id="cancel-tag-hdr" title="Cancelar edición" style="padding:6px 10px">✕</button>' : ''}
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
       ${TAG_COLORS.map(c => `<span class="tag-color-hdr" data-color="${c}" title="${c}" style="width:20px;height:20px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${c===headerTagColor?'#fff':'transparent'}"></span>`).join('')}
     </div>
     <div style="border-top:1px solid var(--border);padding-top:10px;max-height:240px;overflow:auto">
       ${state.tags && state.tags.length ? state.tags.map(t => `
-        <div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 0;${editingTagId===t.id?'background:var(--bg3);border-radius:var(--radius-sm)':''}">
           ${renderTagPill(t)}
           <span style="flex:1"></span>
+          <button class="tag-edit-hdr" data-tid="${t.id}" data-color="${t.color}" title="Editar tag" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:13px;padding:2px 6px">✎</button>
           <button class="tag-delete-hdr" data-tid="${t.id}" data-name="${(t.name||'').replace(/"/g,'&quot;')}" title="Eliminar tag" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:2px 6px">✕</button>
         </div>`).join('') : '<div style="color:var(--text2);font-size:12px">Aún no hay tags. Crea el primero arriba.</div>'}
     </div>`;
@@ -2167,25 +2171,46 @@ function bindTagsPanel() {
       document.querySelectorAll('.tag-color-hdr').forEach(d => d.style.border = '2px solid ' + (d.dataset.color === headerTagColor ? '#fff' : 'transparent'));
     });
   });
-  document.getElementById('create-tag-hdr')?.addEventListener('click', createTagFromHeader);
-  document.getElementById('new-tag-name-hdr')?.addEventListener('keydown', e => { if (e.key === 'Enter') createTagFromHeader(); });
+  document.getElementById('create-tag-hdr')?.addEventListener('click', saveTagFromHeader);
+  document.getElementById('new-tag-name-hdr')?.addEventListener('keydown', e => { if (e.key === 'Enter') saveTagFromHeader(); });
+  document.getElementById('cancel-tag-hdr')?.addEventListener('click', () => {
+    editingTagId = null; headerTagColor = TAG_COLORS[0]; refreshTagsPanel();
+  });
+  document.querySelectorAll('.tag-edit-hdr').forEach(btn => {
+    btn.addEventListener('click', () => {
+      editingTagId = parseInt(btn.dataset.tid);
+      headerTagColor = btn.dataset.color || TAG_COLORS[0];
+      refreshTagsPanel();
+      document.getElementById('new-tag-name-hdr')?.focus();
+    });
+  });
   document.querySelectorAll('.tag-delete-hdr').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm(`¿Eliminar el tag "${btn.dataset.name}"? Se quitará de todos los contactos.`)) return;
       await apiFetch(`/api/tags/${btn.dataset.tid}`, { method: 'DELETE' });
-      state.tags = (state.tags || []).filter(t => t.id !== parseInt(btn.dataset.tid));
+      const did = parseInt(btn.dataset.tid);
+      state.tags = (state.tags || []).filter(t => t.id !== did);
+      if (editingTagId === did) { editingTagId = null; headerTagColor = TAG_COLORS[0]; }
       refreshTagsPanel();
     });
   });
 }
 
-async function createTagFromHeader() {
+async function saveTagFromHeader() {
   const inp = document.getElementById('new-tag-name-hdr');
   const name = (inp?.value || '').trim();
   if (!name) return;
-  const tag = await apiFetch('/api/tags', { method: 'POST', body: JSON.stringify({ name, color: headerTagColor }) });
-  if (tag && tag.id) {
-    state.tags = [...(state.tags || []).filter(t => t.id !== tag.id), tag].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  if (editingTagId) {
+    const updated = await apiFetch(`/api/tags/${editingTagId}`, { method: 'PATCH', body: JSON.stringify({ name, color: headerTagColor }) });
+    if (updated && updated.id) {
+      state.tags = (state.tags || []).map(t => t.id === updated.id ? updated : t).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      editingTagId = null; headerTagColor = TAG_COLORS[0];
+    } else if (updated && updated.error) { alert(updated.error); return; }
+  } else {
+    const tag = await apiFetch('/api/tags', { method: 'POST', body: JSON.stringify({ name, color: headerTagColor }) });
+    if (tag && tag.id) {
+      state.tags = [...(state.tags || []).filter(t => t.id !== tag.id), tag].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    } else if (tag && tag.error) { alert(tag.error); return; }
   }
   refreshTagsPanel();
 }

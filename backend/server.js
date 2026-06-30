@@ -877,6 +877,29 @@ app.post('/api/tags', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.patch('/api/tags/:id', auth, async (req, res) => {
+  try {
+    const { name, color } = req.body;
+    const sets = [], vals = [];
+    let p = 1;
+    if (name !== undefined) {
+      if (!String(name).trim()) return res.status(400).json({ error: 'name required' });
+      sets.push(`name = $${p++}`); vals.push(String(name).trim());
+    }
+    if (color !== undefined) { sets.push(`color = $${p++}`); vals.push(color); }
+    if (!sets.length) return res.status(400).json({ error: 'nothing to update' });
+    vals.push(req.params.id);
+    const result = await pool.query(
+      `UPDATE tags SET ${sets.join(', ')} WHERE id = $${p} RETURNING *`, vals
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Tag not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un tag con ese nombre' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/tags/:id', auth, async (req, res) => {
   try {
     await pool.query(`DELETE FROM tags WHERE id = $1`, [req.params.id]);
