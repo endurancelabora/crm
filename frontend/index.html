@@ -713,6 +713,7 @@ function renderContacts() {
         <div id="camp-no-results" style="display:none;color:var(--text2);font-size:12px;padding:6px 4px">Sin coincidencias</div>
         </div>
         <div style="display:flex;gap:8px;border-top:1px solid var(--border);padding-top:10px;margin-top:8px">
+          <button class="btn btn-ghost" id="camp-select-all" style="padding:6px 12px;font-size:12px">Todas</button>
           <button class="btn btn-ghost" id="camp-clear-sel" style="padding:6px 12px;font-size:12px">Limpiar</button>
           <button class="btn btn-primary" id="camp-apply" style="padding:6px 16px;font-size:12px;margin-left:auto">Aplicar</button>
         </div>
@@ -2273,6 +2274,13 @@ function bindContactsEvents() {
     state.page = 1;
     document.getElementById('campaign-panel')?.classList.add('hidden');
     loadContacts();
+  });
+  document.getElementById('camp-select-all')?.addEventListener('click', () => {
+    document.querySelectorAll('#campaign-list .ms-item').forEach(it => {
+      if (it.style.display === 'none') return; // respect the search filter
+      const cb = it.querySelector('.camp-check');
+      if (cb && cb.value !== '__no_campaign__') cb.checked = true;
+    });
   });
   document.getElementById('camp-clear-sel')?.addEventListener('click', () => {
     document.querySelectorAll('.camp-check').forEach(cb => cb.checked = false);
