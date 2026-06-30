@@ -1490,6 +1490,106 @@ async function runImport() {
   btn.onclick = () => { closeImportModal(); loadAll(); };
 }
 
+// ─── Data cleaning: company name (adapted from the user's Node script) ──
+function fixEncoding(text) {
+  if (!text) return text;
+  const str = String(text);
+  if (str.includes('Ã') || str.includes('Â') || str.includes('�')) {
+    try {
+      const bytes = Uint8Array.from(Array.from(str, c => c.charCodeAt(0) & 0xff));
+      return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    } catch { return str; }
+  }
+  return str;
+}
+
+function normalizeLegalSuffixes(text) {
+  const replacements = [
+    [/S\.?\s*A\.?\s*DE\s*C\.?\s*V\.?/gi, 'SA DE CV'],
+    [/S\.?\s*DE\s*R\.?\s*L\.?\s*DE\s*C\.?\s*V\.?/gi, 'S DE RL DE CV'],
+    [/S\.?\s*A\.?\s*P\.?\s*I\.?\s*DE\s*C\.?\s*V\.?/gi, 'SAPI DE CV'],
+    [/S\.?\s*A\.?\s*B\.?\s*DE\s*C\.?\s*V\.?/gi, 'SAB DE CV'],
+    [/SAB\s*DECV/gi, 'SAB DE CV'],
+    [/S\.?\s*A\.?\s*P\.?\s*I\.?/gi, 'SAPI'],
+    [/S\.?\s*COOP\.?/gi, 'S COOP'],
+  ];
+  for (const [pattern, replacement] of replacements) text = text.replace(pattern, replacement);
+  return text;
+}
+
+function toTitleCase(str) {
+  return str.toLowerCase().split(' ').map(word => word ? word.charAt(0).toUpperCase() + word.slice(1) : word).join(' ');
+}
+
+function preserveAcronyms(text) {
+  const acronyms = ['BMW','IAC','IBM','ABB','DHL','UPS','GM','GE','HP','3M','CEMEX','BASF','TTI','JLG','CAT'];
+  for (const acronym of acronyms) text = text.replace(new RegExp(`\\b${acronym}\\b`, 'i'), acronym);
+  return text;
+}
+
+function cleanCompanyName(companyName) {
+  if (!companyName) return '';
+  let text = fixEncoding(String(companyName).trim());
+  text = text.replace(/^https?:\/\/(www\.)?/i, '');           // URLs
+  text = text.replace(/\.(com\.mx|com|mx|net|org)$/i, '');    // dominios
+  text = text.split(' - ')[0];                                 // cortar tras guión
+  text = text.replace(/\s+/g, ' ');                            // espacios
+  text = text.replace(/\(.*?\)/g, '');                         // paréntesis
+  text = text.replace(/,/g, ' ');                              // comas
+
+  const numericVersion = text.replace(/[^\d]/g, '');           // teléfonos
+  if (numericVersion.length >= 7 && /^[\d\s()+-]+$/.test(text)) return '';
+
+  text = normalizeLegalSuffixes(text);
+  const legalSuffixes = ['SA DE CV','S DE RL DE CV','SAPI DE CV','SAB DE CV','SAPI','S COOP','LLC','L.L.C','INC','INCORPORATED','CORPORATION','CORP','LIMITED','LTDA','SA','S A','S. A','S.A'];
+  let changed = true;
+  while (changed) {
+    const original = text;
+    for (const suffix of legalSuffixes) {
+      const regex = new RegExp(`(?:\\s|,)+${suffix.replace(/\./g, '\\.')}\\.?\\s*$`, 'i');
+      text = text.replace(regex, '').trim();
+    }
+    changed = original !== text;
+  }
+
+  const regionalSuffixes = ['MX','MEX','MEXICO','MÉXICO','USA','US'];
+  for (const suffix of regionalSuffixes) {
+    const regex = new RegExp(`(?<!DE )\\b${suffix}\\b\\s*$`, 'i');
+    text = text.replace(regex, '').trim();
+  }
+
+  text = text.replace(/\s+/g, ' ');
+  text = text.replace(/^[\s\-_/.,;|]+|[\s\-_/.,;|]+$/g, '');
+  text = toTitleCase(text);
+  text = preserveAcronyms(text);
+  return text;
+}
+
+// Apply enabled cleaners to the loaded rows (in place); returns a summary.
+function applyCleaning() {
+  if (!importState.rows.length) return { ok: false, msg: 'Primero carga un archivo CSV.' };
+  const msgs = [];
+  if (document.getElementById('clean-company')?.checked) {
+    const headers = Object.keys(importState.rows[0]);
+    const candidates = ['company name','company','empresa','company_name','nombre de la empresa','company name '];
+    const col = headers.find(h => candidates.includes(h.toLowerCase().trim()));
+    if (!col) {
+      msgs.push('⚠️ No encontré columna de empresa (busqué "Company Name", "Company", "Empresa"…). Selecciona/renombra la columna o avísame.');
+    } else {
+      let changed = 0;
+      for (const r of importState.rows) {
+        const before = r[col];
+        const after = cleanCompanyName(before);
+        if (after !== before) changed++;
+        r[col] = after;
+      }
+      msgs.push(`✅ Empresa: ${changed.toLocaleString()} de ${importState.rows.length.toLocaleString()} valores limpiados (columna "${col}").`);
+    }
+  }
+  if (!msgs.length) msgs.push('No seleccionaste ninguna limpieza.');
+  return { ok: true, msg: msgs.join(' ') };
+}
+
 // ─── Import as a full section (reuses the modal flow functions) ────
 function renderImport() {
   return `
@@ -1524,10 +1624,15 @@ function renderImport() {
 
     <div id="import-data-preview"></div>
 
-    <div class="stat-card" style="margin-bottom:18px;border-style:dashed">
-      <div style="font-weight:600;margin-bottom:6px">3 · Limpieza de datos <span style="color:var(--amber);font-size:11px">(próximamente)</span></div>
-      <div style="font-size:12px;color:var(--text2)">Aquí se aplicará tu proceso de limpieza. Pásame tu código y lo conecto en este paso (normalización, deduplicado, formato de fechas, etc.).</div>
-      <button class="btn btn-ghost" id="clean-btn" disabled style="margin-top:10px;opacity:.6;cursor:not-allowed">Aplicar limpieza</button>
+    <div class="stat-card" style="margin-bottom:18px">
+      <div style="font-weight:600;margin-bottom:8px">3 · Limpieza de datos</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
+        <input type="checkbox" id="clean-company" checked>
+        Limpiar nombre de empresa <span style="color:var(--text2);font-size:11px">— encoding, dominios/URLs, sufijos legales (SA DE CV…), Title Case, acrónimos</span>
+      </label>
+      <div style="font-size:11px;color:var(--text2);margin:6px 0 4px">Aplica la limpieza sobre los datos cargados y revisa el resultado en la vista previa de arriba antes de mapear.</div>
+      <button class="btn btn-secondary" id="clean-btn" style="margin-top:8px">Aplicar limpieza</button>
+      <div id="clean-status" style="font-size:12px;color:var(--text2);margin-top:8px;min-height:16px"></div>
     </div>
 
     <div class="stat-card">
@@ -1563,6 +1668,13 @@ function renderRawPreview() {
 
 function bindImport() {
   bindImportModal();
+  document.getElementById('clean-btn')?.addEventListener('click', () => {
+    const res = applyCleaning();
+    const dp = document.getElementById('import-data-preview');
+    if (dp && importState.rows.length) dp.innerHTML = renderRawPreview();
+    const st = document.getElementById('clean-status');
+    if (st) st.textContent = res.msg;
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
