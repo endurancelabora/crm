@@ -1073,9 +1073,17 @@ function openChatModal(campName, d) {
   const seqFromLeads = parseInt((cl?.current_sequence||'').replace(/\D/g,''))||0;
   const sentCount = acts.length || seqFromLeads;
 
+  // Subject lives at campaign level (Subject_1/Subject_2 in campaign_leads.custom_fields).
+  // Map each sent email to its template subject by sequence number; fall back to Subject_1.
+  const cf = cl?.custom_fields || {};
+  const subjectFor = seq => {
+    const n = parseInt(String(seq||'').replace(/\D/g,'')) || 1;
+    return cf['Subject_' + n] || cf['Subject_1'] || null;
+  };
+
   const messages = [];
   acts.forEach(a => {
-    if (a.sent_email_body || a.sent_at) messages.push({ type:'sent', date: a.sent_at, seq: a.sequence_number, body: a.sent_email_body, opens: parseInt(a.open_count)||0, clicked: !!a.clicked_at });
+    if (a.sent_email_body || a.sent_at) messages.push({ type:'sent', date: a.sent_at, seq: a.sequence_number, subject: subjectFor(a.sequence_number), body: a.sent_email_body, opens: parseInt(a.open_count)||0, clicked: !!a.clicked_at });
     if (a.reply_message) messages.push({ type:'reply', date: a.replied_at, body: a.reply_message });
   });
   if (cl?.reply_message && !acts.some(a => a.reply_message)) {
@@ -1096,7 +1104,7 @@ function openChatModal(campName, d) {
         ${messages.length ? messages.map(m => {
           if (m.type === 'sent') return `
           <div class="chat-bubble-wrap sent">
-            <div class="chat-bubble sent">${m.body ? m.body.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '(sin cuerpo)'}</div>
+            <div class="chat-bubble sent">${m.subject ? `<div style="font-weight:600;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.25)">✉ ${m.subject.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>` : ''}${m.body ? m.body.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '(sin cuerpo)'}</div>
             <div class="chat-meta">Seq ${m.seq} · ${m.date ? fmtDate(m.date) : ''}${m.opens>0 ? ` · 👁 ${m.opens} apertura${m.opens!==1?'s':''}` : ''}${m.clicked ? ' · 🔗 Clic' : ''}</div>
           </div>`;
           else return `
