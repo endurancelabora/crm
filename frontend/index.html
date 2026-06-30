@@ -11,6 +11,11 @@
       --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --blue: #3b82f6;
       --radius: 10px; --radius-sm: 6px;
     }
+    body.light {
+      --bg: #f4f5f9; --bg2: #ffffff; --bg3: #eaecf3; --border: #d9dce6;
+      --text: #1a1d27; --text2: #6b7185; --accent: #5b6af0; --accent-light: #4a57d6;
+      --green: #16a34a; --amber: #d97706; --red: #dc2626; --blue: #2563eb;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
 
@@ -329,7 +334,9 @@ const FILTER_FIELDS = [
   { key: 'tag',        label: 'Tag' },
 ];
 
-const TAG_COLORS = ['#5b6af0','#22c55e','#f59e0b','#ef4444','#3b82f6','#a855f7','#ec4899','#14b8a6','#f97316','#64748b'];
+const TAG_COLORS = ['#5b6af0','#22c55e','#f59e0b','#ef4444','#3b82f6','#a855f7','#ec4899','#14b8a6','#f97316','#64748b',
+  '#84cc16','#06b6d4','#6366f1','#f43f5e','#10b981','#eab308','#0ea5e9','#8b5cf6','#d946ef','#78716c',
+  '#dc2626','#16a34a','#2563eb','#db2777'];
 let headerTagColor = TAG_COLORS[0]; // selected color for the header Tags panel
 
 let state = {
@@ -485,7 +492,17 @@ function mapColumns(rows) {
 // ═══════════════════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════════════════
+function getTheme() { return localStorage.getItem('crm_theme') || 'dark'; }
+function applyTheme(t) { document.body.classList.toggle('light', t === 'light'); }
+function toggleTheme() {
+  const next = getTheme() === 'light' ? 'dark' : 'light';
+  localStorage.setItem('crm_theme', next);
+  applyTheme(next);
+  render();
+}
+
 function render() {
+  applyTheme(getTheme());
   const app = document.getElementById('app');
   if (!API_KEY) { app.innerHTML = renderLogin(); bindLogin(); return; }
   app.innerHTML = renderApp();
@@ -533,6 +550,7 @@ function renderApp() {
       <div class="nav-item ${state.view==='campaigns'?'active':''}" data-view="campaigns"><span class="nav-icon">📣</span> Campaigns</div>
       <div class="nav-item ${state.view==='admin'?'active':''}" data-view="admin" style="margin-top:auto"><span class="nav-icon">⚙</span> Admin</div>
       <div style="margin-top:auto; padding: 16px 20px;">
+        <button class="btn btn-ghost" id="theme-toggle-btn" style="width:100%;font-size:12px;margin-bottom:8px">${getTheme()==='light' ? '🌙 Modo noche' : '☀️ Modo día'}</button>
         <div style="color:var(--text2);font-size:11px;margin-bottom:6px">Active session</div>
         <button class="btn btn-ghost" id="logout-btn" style="width:100%;font-size:12px">Sign out</button>
       </div>
@@ -1461,6 +1479,7 @@ function bindApp() {
       if (state.view === 'companies') loadCompanies();
     });
   });
+  document.getElementById('theme-toggle-btn')?.addEventListener('click', toggleTheme);
   document.getElementById('logout-btn')?.addEventListener('click', () => {
     API_KEY = ''; localStorage.removeItem('crm_api_key'); render();
   });
