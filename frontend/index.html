@@ -669,14 +669,19 @@ function renderContacts() {
       <button class="btn btn-ghost ms-trigger" id="campaign-btn">
         Campaign ${state.selectedCampaigns.length ? `<span class="ms-count">${state.selectedCampaigns.length}</span>` : '▾'}
       </button>
-      <div class="dropdown-panel hidden" id="campaign-panel" style="min-width:280px;left:0;right:auto;max-height:320px;overflow-y:auto">
+      <div class="dropdown-panel hidden" id="campaign-panel" style="min-width:280px;left:0;right:auto">
         <div class="panel-title">Campaigns</div>
+        <input type="text" id="camp-search" placeholder="🔍 Buscar campaña..." autocomplete="off"
+          style="width:100%;box-sizing:border-box;margin-bottom:8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text);font-size:12px;outline:none">
+        <div id="campaign-list" style="max-height:260px;overflow-y:auto">
         ${(state.campaigns||[]).map(c => `
-        <label class="ms-item">
+        <label class="ms-item" data-campname="${(c.campaign_name||'').toLowerCase().replace(/"/g,'&quot;')}">
           <input type="checkbox" class="camp-check" value="${c.campaign_name}" ${state.selectedCampaigns.includes(c.campaign_name)?'checked':''}>
           <span style="flex:1">${c.campaign_name}</span>
           <span style="color:var(--text2);font-size:11px">${c.interested} int.</span>
         </label>`).join('')}
+        <div id="camp-no-results" style="display:none;color:var(--text2);font-size:12px;padding:6px 4px">Sin coincidencias</div>
+        </div>
       </div>
     </div>
     <button class="btn btn-ghost" id="clear-btn">Clear</button>
@@ -2190,6 +2195,18 @@ function bindContactsEvents() {
   // Multi-select campaign panel
   document.getElementById('campaign-btn')?.addEventListener('click', e => {
     e.stopPropagation(); togglePanel('campaign-btn', 'campaign-panel');
+    setTimeout(() => document.getElementById('camp-search')?.focus(), 50);
+  });
+  document.getElementById('camp-search')?.addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    let any = false;
+    document.querySelectorAll('#campaign-list .ms-item').forEach(it => {
+      const match = !q || (it.dataset.campname || '').includes(q);
+      it.style.display = match ? '' : 'none';
+      if (match) any = true;
+    });
+    const nr = document.getElementById('camp-no-results');
+    if (nr) nr.style.display = any ? 'none' : '';
   });
   document.querySelectorAll('.camp-check').forEach(cb => {
     cb.addEventListener('change', () => {
