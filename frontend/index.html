@@ -675,7 +675,7 @@ function renderContacts() {
     <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
       <span style="color:var(--text2);font-size:12px">Show</span>
       <select class="filter-input" id="limit-select" style="width:80px">
-        ${[10,20,50,100,200,500].map(n => `<option value="${n}" ${state.limit===n?'selected':''}>${n}</option>`).join('')}
+        ${[10,20,50,100,200,500,1000].map(n => `<option value="${n}" ${state.limit===n?'selected':''}>${n}</option>`).join('')}
       </select>
       <span style="color:var(--text2);font-size:12px">per page</span>
     </div>
@@ -883,7 +883,7 @@ function renderCompanies() {
     <div style="display:flex;align-items:center;gap:8px">
       <span style="color:var(--text2);font-size:12px">Mostrar</span>
       <select class="filter-input" id="comp-limit-select" style="width:80px">
-        ${[10,20,50,100,200].map(n=>`<option value="${n}" ${state.compLimit===n?'selected':''}>${n}</option>`).join('')}
+        ${[10,20,50,100,200,500,1000].map(n=>`<option value="${n}" ${state.compLimit===n?'selected':''}>${n}</option>`).join('')}
       </select>
     </div>
     <div class="pagination-btns">
