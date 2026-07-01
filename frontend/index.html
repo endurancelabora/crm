@@ -361,6 +361,8 @@ let state = {
   companies: [], compTotal: 0, compPage: 1, compLimit: 20,
   compSearch: '', compSort: 'company', compDir: 'ASC',
   selectedCompanies: new Set(),
+  names: [], nameTotal: 0, namePage: 1, nameLimit: 20,
+  nameSearch: '', nameSort: 'first_name', nameDir: 'ASC',
   campSearch: '', campSort: 'campaign_name', campDir: 'ASC',
 };
 
@@ -554,6 +556,7 @@ function renderApp() {
       <div class="logo">CRM <span>Labora</span></div>
       <div class="nav-item ${state.view==='contacts'?'active':''}" data-view="contacts"><span class="nav-icon">👥</span> Contacts</div>
       <div class="nav-item ${state.view==='companies'?'active':''}" data-view="companies"><span class="nav-icon">🏢</span> Companies</div>
+      <div class="nav-item ${state.view==='names'?'active':''}" data-view="names"><span class="nav-icon">🧑</span> Names</div>
       <div class="nav-item ${state.view==='campaigns'?'active':''}" data-view="campaigns"><span class="nav-icon">📣</span> Campaigns</div>
       <div class="nav-item ${state.view==='import'?'active':''}" data-view="import"><span class="nav-icon">📥</span> Import</div>
       <div class="nav-item ${state.view==='admin'?'active':''}" data-view="admin" style="margin-top:auto"><span class="nav-icon">⚙</span> Admin</div>
@@ -564,7 +567,7 @@ function renderApp() {
       </div>
     </aside>
     <div class="main" id="main-content">
-      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'import' ? renderImport() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
+      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'names' ? renderNames() : state.view === 'import' ? renderImport() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
     </div>
   </div>
   ${renderDrawer()}
@@ -1778,6 +1781,7 @@ function bindApp() {
       if (state.view === 'import') importState = { type: 'contacts', file: null, rows: [], mapped: [], mappedCols: [], customCols: [] };
       render();
       if (state.view === 'companies') loadCompanies();
+      if (state.view === 'names') loadNames();
     });
   });
   document.getElementById('theme-toggle-btn')?.addEventListener('click', toggleTheme);
@@ -1788,6 +1792,7 @@ function bindApp() {
   if (state.view === 'contacts') bindContactsEvents();
   if (state.view === 'campaigns') bindCampaignEvents();
   if (state.view === 'companies') bindCompanyEvents();
+  if (state.view === 'names') bindNamesEvents();
   if (state.view === 'admin') bindAdminEvents();
   if (state.view === 'import') bindImport();
 
@@ -2745,6 +2750,88 @@ async function loadCompanies() {
   state.companies = data?.rows || [];
   state.compTotal = data?.total || 0;
   render(); bindApp();
+}
+
+// ─── Names reference view (like Companies, read-only) ─────────
+function renderNames() {
+  const sd = col => col === state.nameSort ? (state.nameDir === 'ASC' ? ' ▲' : ' ▼') : ' ⇅';
+  const sortTh = (col, label) => `<th class="sortable" data-name-sort="${col}" style="cursor:pointer;user-select:none">${label}${sd(col)}</th>`;
+  const totalPages = Math.ceil(state.nameTotal / state.nameLimit);
+  const startN = (state.namePage - 1) * state.nameLimit + 1;
+  const endN = Math.min(state.namePage * state.nameLimit, state.nameTotal);
+  const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;');
+  return `
+  <div class="toolbar" style="padding-top:24px">
+    <div style="font-size:18px;font-weight:700">Names
+      <span style="font-size:13px;color:var(--text2);font-weight:400;margin-left:6px">${state.nameTotal.toLocaleString()} nombres</span>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <input class="filter-input" type="text" id="name-search" placeholder="🔍  Buscar nombre..." value="${state.nameSearch.replace(/"/g,'&quot;')}" style="width:280px">
+    </div>
+  </div>
+  <div class="table-wrap" style="margin-top:16px">
+    <table class="table">
+      <thead><tr>
+        ${sortTh('first_name','First Name')}
+        ${sortTh('first_name_cleaned','First Name Cleaned')}
+        ${sortTh('total_contacts','Contacts')}
+      </tr></thead>
+      <tbody>
+        ${state.names.length ? state.names.map(n => `
+          <tr>
+            <td style="font-weight:500">${esc(n.first_name) || '—'}</td>
+            <td style="color:var(--text2)">${esc(n.first_name_cleaned) || '—'}</td>
+            <td style="color:var(--text2)">${n.total_contacts}</td>
+          </tr>`).join('') : `<tr><td colspan="3"><div class="empty"><div class="empty-icon">🧑</div><div class="empty-text">No names found</div></div></td></tr>`}
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination">
+    <div class="pagination-info">${state.nameTotal > 0 ? `Mostrando ${startN}–${endN} de ${state.nameTotal.toLocaleString()}` : 'Sin resultados'}</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="color:var(--text2);font-size:12px">Mostrar</span>
+      <select class="filter-input" id="name-limit-select" style="width:80px">
+        ${[10,20,50,100,200,500,1000].map(n=>`<option value="${n}" ${state.nameLimit===n?'selected':''}>${n}</option>`).join('')}
+      </select>
+    </div>
+    <div class="pagination-btns">
+      ${renderPageBtns(state.namePage, totalPages, 'page-btn name-page-btn')}
+    </div>
+  </div>`;
+}
+
+async function loadNames() {
+  const params = new URLSearchParams({
+    sort_by: state.nameSort, sort_dir: state.nameDir,
+    page: state.namePage, limit: state.nameLimit,
+  });
+  if (state.nameSearch) params.set('search', state.nameSearch);
+  const data = await apiFetch('/api/names?' + params);
+  state.names = data?.rows || [];
+  state.nameTotal = data?.total || 0;
+  render(); bindApp();
+}
+
+function bindNamesEvents() {
+  let nameT;
+  document.getElementById('name-search')?.addEventListener('input', e => {
+    clearTimeout(nameT);
+    nameT = setTimeout(() => { state.nameSearch = e.target.value; state.namePage = 1; loadNames(); }, 350);
+  });
+  document.querySelectorAll('[data-name-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.nameSort;
+      if (state.nameSort === col) state.nameDir = state.nameDir === 'ASC' ? 'DESC' : 'ASC';
+      else { state.nameSort = col; state.nameDir = 'ASC'; }
+      state.namePage = 1; loadNames();
+    });
+  });
+  document.querySelectorAll('.name-page-btn').forEach(btn => {
+    btn.addEventListener('click', () => { state.namePage = parseInt(btn.dataset.page); loadNames(); });
+  });
+  document.getElementById('name-limit-select')?.addEventListener('change', e => {
+    state.nameLimit = parseInt(e.target.value); state.namePage = 1; loadNames();
+  });
 }
 
 async function loadCampaignsOnly() {

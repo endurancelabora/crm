@@ -454,6 +454,33 @@ app.get('/api/companies', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Names reference view: distinct first names with their cleaned value + count
+const NAME_SORT = { first_name: 'first_name', first_name_cleaned: 'MAX(first_name_cleaned)', total_contacts: 'total_contacts' };
+app.get('/api/names', auth, async (req, res) => {
+  try {
+    const { search, sort_by = 'first_name', sort_dir = 'ASC', page = 1, limit = 20 } = req.query;
+    const params = [];
+    let where = `WHERE first_name IS NOT NULL AND first_name != ''`;
+    if (search) { where += ` AND (first_name ILIKE $1 OR first_name_cleaned ILIKE $1)`; params.push(`%${search}%`); }
+    const col = NAME_SORT[sort_by] || 'first_name';
+    const dir = sort_dir === 'DESC' ? 'DESC' : 'ASC';
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const countResult = await pool.query(
+      `SELECT COUNT(DISTINCT first_name) AS total FROM contacts ${where}`, params
+    );
+    const result = await pool.query(`
+      SELECT first_name,
+        MAX(first_name_cleaned) AS first_name_cleaned,
+        COUNT(*) AS total_contacts
+      FROM contacts ${where}
+      GROUP BY first_name
+      ORDER BY ${col} ${dir} NULLS LAST
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `, [...params, parseInt(limit), offset]);
+    res.json({ rows: result.rows, total: parseInt(countResult.rows[0].total) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Bulk-tag all contacts belonging to selected companies
 app.post('/api/companies/bulk-tag', auth, async (req, res) => {
   try {
