@@ -711,6 +711,88 @@ const CAMPAIGN_ACTIVITY_FIELDS = new Set([
 function toNull(v) { return v === '' || v === '--' || v === undefined ? null : v; }
 function parseBool(v) { return String(v).toLowerCase() === 'true'; }
 
+// ─── Data cleaning (server-side, used to clean existing contacts) ──────────
+function fixEncoding(text) {
+  if (!text) return text;
+  const str = String(text);
+  if (str.includes('Ã') || str.includes('Â') || str.includes('�')) {
+    try { return Buffer.from(str, 'latin1').toString('utf8'); } catch { return str; }
+  }
+  return str;
+}
+function normalizeLegalSuffixes(text) {
+  const replacements = [
+    [/S\.?\s*A\.?\s*DE\s*C\.?\s*V\.?/gi, 'SA DE CV'],
+    [/S\.?\s*DE\s*R\.?\s*L\.?\s*DE\s*C\.?\s*V\.?/gi, 'S DE RL DE CV'],
+    [/S\.?\s*A\.?\s*P\.?\s*I\.?\s*DE\s*C\.?\s*V\.?/gi, 'SAPI DE CV'],
+    [/S\.?\s*A\.?\s*B\.?\s*DE\s*C\.?\s*V\.?/gi, 'SAB DE CV'],
+    [/SAB\s*DECV/gi, 'SAB DE CV'],
+    [/S\.?\s*A\.?\s*P\.?\s*I\.?/gi, 'SAPI'],
+    [/S\.?\s*COOP\.?/gi, 'S COOP'],
+  ];
+  for (const [pattern, replacement] of replacements) text = text.replace(pattern, replacement);
+  return text;
+}
+function toTitleCase(str) {
+  return str.toLowerCase().split(' ').map(w => w ? w.charAt(0).toUpperCase() + w.slice(1) : w).join(' ');
+}
+function preserveAcronyms(text) {
+  const acronyms = ['BMW','IAC','IBM','ABB','DHL','UPS','GM','GE','HP','3M','CEMEX','BASF','TTI','JLG','CAT'];
+  for (const a of acronyms) text = text.replace(new RegExp(`\\b${a}\\b`, 'i'), a);
+  return text;
+}
+function cleanCompanyName(companyName) {
+  if (!companyName) return '';
+  let text = fixEncoding(String(companyName).trim());
+  text = text.replace(/^https?:\/\/(www\.)?/i, '');
+  text = text.replace(/\.(com\.mx|com|mx|net|org)$/i, '');
+  text = text.split(' - ')[0];
+  text = text.replace(/\s+/g, ' ');
+  text = text.replace(/\(.*?\)/g, '');
+  text = text.replace(/,/g, ' ');
+  const numericVersion = text.replace(/[^\d]/g, '');
+  if (numericVersion.length >= 7 && /^[\d\s()+-]+$/.test(text)) return '';
+  text = normalizeLegalSuffixes(text);
+  const legalSuffixes = ['SA DE CV','S DE RL DE CV','SAPI DE CV','SAB DE CV','SAPI','S COOP','LLC','L.L.C','INC','INCORPORATED','CORPORATION','CORP','LIMITED','LTDA','SA','S A','S. A','S.A'];
+  let changed = true;
+  while (changed) {
+    const original = text;
+    for (const suffix of legalSuffixes) {
+      text = text.replace(new RegExp(`(?:\\s|,)+${suffix.replace(/\./g, '\\.')}\\.?\\s*$`, 'i'), '').trim();
+    }
+    changed = original !== text;
+  }
+  const regionalSuffixes = ['MX','MEX','MEXICO','MÉXICO','USA','US'];
+  for (const suffix of regionalSuffixes) {
+    text = text.replace(new RegExp(`(?<!DE )\\b${suffix}\\b\\s*$`, 'i'), '').trim();
+  }
+  text = text.replace(/\s+/g, ' ');
+  text = text.replace(/^[\s\-_/.,;|]+|[\s\-_/.,;|]+$/g, '');
+  text = toTitleCase(text);
+  text = preserveAcronyms(text);
+  return text;
+}
+const badNames = new Set(['Administracion','Administración','Comercio','Trafico','Tráfico','Logistica','Logística','Operaciones','Compras','Importacion','Importación','Importaciones','Exportacion','Exportación','Embarque','Recepcion','Recepción','Ventas','Recursos','Humanos','Admin','Info','Contacto','Usuario','Team','Customer','Service','Gerente','Finance','Accounting','Rh','Proteak','Ensambladores','Direccion','Dirección','Asistente','Auxiliar','Coordinacion','Coordinación','Gerencia','Departamento','Corporativo','Empresa','Facturacion','Facturación','Sistemas','Almacen','Almacén','Credito','Crédito','Cobranza','Atencion','Atención','Lic','Ing','Dr','Dra','Mtro','Mtra','Mttra','Cp','Arq','Sr','Sra','Srta','Licenciado','Ingeniero']);
+function generateGreetingName(firstName, lastName) {
+  if (!firstName) return null;
+  let name = fixEncoding(String(firstName).trim());
+  const last = fixEncoding(String(lastName || '')).trim().toLowerCase();
+  if (name.toLowerCase() === 'a' && last.includes('quien')) return null;
+  const titles = [/^Lic\.?\s+/i,/^Ing\.?\s+/i,/^Dr\.?\s+/i,/^Dra\.?\s+/i,/^Mtro\.?\s+/i,/^Mtra\.?\s+/i,/^Mttra\.?\s+/i,/^Cp\.?\s+/i,/^C\.?\s*P\.?\s+/i,/^Sr\.?\s+/i,/^Sra\.?\s+/i,/^Srta\.?\s+/i,/^Arq\.?\s+/i,/^Licenciado\s+/i,/^Ingeniero\s+/i];
+  for (const p of titles) name = name.replace(p, '');
+  if (/^(Lic|Ing|Dr|Dra|Mtro|Mtra|Mttra|Cp|Arq|Sr|Sra|Srta|Licenciado|Ingeniero)\.?$/i.test(name.trim())) return null;
+  name = name.replace(/^[A-ZÁÉÍÓÚÑ]\.\s+/i, '');
+  name = name.replace(/\s+/g, ' ').trim();
+  if (!name) return null;
+  name = toTitleCase(name);
+  const greetingName = name.split(' ')[0];
+  if (/^[A-ZÁÉÍÓÚÑ]\.$/i.test(greetingName)) return null;
+  if (greetingName.length <= 1) return null;
+  if (/\d/.test(greetingName)) return null;
+  if (badNames.has(greetingName)) return null;
+  return greetingName;
+}
+
 app.post('/api/import/contacts', auth, async (req, res) => {
   const { rows } = req.body;
   if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows required' });
@@ -769,6 +851,41 @@ app.post('/api/import/contacts', auth, async (req, res) => {
     }
   }
   res.json({ ok: true, imported, errors });
+});
+
+// Recompute first_name_cleaned / company_cleaned for ALL existing contacts
+app.post('/api/contacts/clean-all', auth, async (req, res) => {
+  try {
+    const doCompany = req.body.company !== false;
+    const doName = req.body.name !== false;
+    const all = await pool.query('SELECT id, first_name, last_name, company FROM contacts');
+    const rows = all.rows;
+    let updated = 0;
+    const BATCH = 1000;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const slice = rows.slice(i, i + BATCH);
+      const ids = [], fncs = [], ccs = [];
+      for (const r of slice) {
+        ids.push(r.id);
+        fncs.push(doName ? generateGreetingName(r.first_name, r.last_name) : null);
+        ccs.push(doCompany ? (cleanCompanyName(r.company) || null) : null);
+      }
+      await pool.query(
+        `UPDATE contacts c SET
+           first_name_cleaned = CASE WHEN $4 THEN d.fnc ELSE c.first_name_cleaned END,
+           company_cleaned    = CASE WHEN $5 THEN d.cc  ELSE c.company_cleaned END,
+           updated_at = NOW()
+         FROM (SELECT UNNEST($1::int[]) id, UNNEST($2::text[]) fnc, UNNEST($3::text[]) cc) d
+         WHERE c.id = d.id`,
+        [ids, fncs, ccs, doName, doCompany]
+      );
+      updated += slice.length;
+    }
+    res.json({ ok: true, updated });
+  } catch (err) {
+    console.error('clean-all error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/import/campaign-leads', auth, async (req, res) => {

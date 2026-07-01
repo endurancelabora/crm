@@ -1701,8 +1701,13 @@ function renderImport() {
         Limpiar nombre de pila <span style="color:var(--text2);font-size:11px">— quita títulos (Lic, Ing…), descarta genéricos/departamentos → <strong>first_name_cleaned</strong> (deja "first_name" original)</span>
       </label>
       <div style="font-size:11px;color:var(--text2);margin:6px 0 4px">Aplica la limpieza sobre los datos cargados y revisa el resultado en la vista previa de arriba antes de mapear.</div>
-      <button class="btn btn-secondary" id="clean-btn" style="margin-top:8px">Aplicar limpieza</button>
+      <button class="btn btn-secondary" id="clean-btn" style="margin-top:8px">Aplicar limpieza (al archivo cargado)</button>
       <div id="clean-status" style="font-size:12px;color:var(--text2);margin-top:8px;min-height:16px"></div>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">¿Ya tienes contactos cargados? Aplica la misma limpieza a <strong>todos los contactos existentes</strong> en la base (rellena <code>first_name_cleaned</code> y <code>company_cleaned</code>, sin tocar los originales).</div>
+        <button class="btn btn-primary" id="clean-all-btn">🧹 Limpiar todos los contactos existentes</button>
+        <div id="clean-all-status" style="font-size:12px;color:var(--text2);margin-top:8px;min-height:16px"></div>
+      </div>
     </div>
 
     <div class="stat-card">
@@ -1744,6 +1749,20 @@ function bindImport() {
     if (dp && importState.rows.length) dp.innerHTML = renderRawPreview();
     const st = document.getElementById('clean-status');
     if (st) st.textContent = res.msg;
+  });
+  document.getElementById('clean-all-btn')?.addEventListener('click', async () => {
+    if (!confirm('Esto recalculará "first_name_cleaned" y "company_cleaned" para TODOS los contactos de la base (no toca los originales). ¿Continuar?')) return;
+    const btn = document.getElementById('clean-all-btn');
+    const st = document.getElementById('clean-all-status');
+    btn.disabled = true; btn.textContent = 'Limpiando… (puede tardar un poco)';
+    if (st) st.textContent = 'Procesando todos los contactos…';
+    const res = await apiFetch('/api/contacts/clean-all', { method: 'POST', body: JSON.stringify({ company: true, name: true }) });
+    btn.disabled = false; btn.textContent = '🧹 Limpiar todos los contactos existentes';
+    if (res && res.ok) {
+      if (st) st.textContent = `✅ Listo: ${res.updated.toLocaleString()} contactos actualizados. Revisa la columna "First Name Cleaned"/"Company Cleaned" en Contactos.`;
+    } else {
+      if (st) st.textContent = '❌ Error: ' + (res?.error || 'no se pudo completar');
+    }
   });
 }
 
