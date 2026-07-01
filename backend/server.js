@@ -680,37 +680,106 @@ app.get('/api/stats', auth, async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════════════════════════
-app.get('/api/export', auth, async (req, res) => {
+// Build the WHERE clause + params for contact filters (shared by export)
+function buildContactsWhere(q) {
+  const { search, campaign, category, no_contact, bounced, filters } = q;
+  const params = [];
+  const conditions = [];
+  let p = 1;
+  if (search) {
+    conditions.push(`(c.email ILIKE $${p} OR c.first_name ILIKE $${p} OR c.last_name ILIKE $${p} OR c.company ILIKE $${p})`);
+    params.push(`%${search}%`); p++;
+  }
+  if (campaign) {
+    const campsArr = String(campaign).split('|||').map(s => s.trim()).filter(Boolean);
+    const wantNoCampaign = campsArr.includes('__no_campaign__');
+    const realCamps = campsArr.filter(c => c !== '__no_campaign__');
+    const orParts = [];
+    if (realCamps.length === 1) { orParts.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name ILIKE $${p})`); params.push(`%${realCamps[0]}%`); p++; }
+    else if (realCamps.length > 1) { orParts.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name = ANY($${p}))`); params.push(realCamps); p++; }
+    if (wantNoCampaign) orParts.push(`NOT EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email)`);
+    if (orParts.length) conditions.push('(' + orParts.join(' OR ') + ')');
+  }
+  if (category) {
+    const catsArr = String(category).split('|||').map(s => s.trim()).filter(Boolean);
+    if (catsArr.length === 1) { conditions.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.lead_category = $${p})`); params.push(catsArr[0]); p++; }
+    else if (catsArr.length > 1) { conditions.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.lead_category = ANY($${p}))`); params.push(catsArr); p++; }
+  }
+  if (no_contact === 'true' || no_contact === true) conditions.push(`c.no_contact = TRUE`);
+  if (bounced === 'true' || bounced === true) conditions.push(`c.email_bounced = TRUE`);
+  if (filters) {
+    try {
+      const fArr = typeof filters === 'string' ? JSON.parse(filters) : filters;
+      for (const f of fArr) {
+        const isNull = f.op === 'empty';
+        const notNull = f.op === 'not_empty';
+        if (FILTERABLE_COLS.has(f.field)) {
+          if (isNull) conditions.push(`(c.${f.field} IS NULL OR c.${f.field} = '')`);
+          else if (notNull) conditions.push(`(c.${f.field} IS NOT NULL AND c.${f.field} != '')`);
+          else if (f.value) {
+            if (f.op === 'exact') { conditions.push(`LOWER(c.${f.field}) = LOWER($${p})`); params.push(f.value); p++; }
+            else { conditions.push(`c.${f.field} ILIKE $${p}`); params.push(`%${f.value}%`); p++; }
+          }
+        }
+        if (f.field && f.field.startsWith('cf:')) {
+          const cfKey = f.field.slice(3).replace(/'/g, "''");
+          if (isNull) conditions.push(`(c.custom_fields->>'${cfKey}' IS NULL OR c.custom_fields->>'${cfKey}' = '')`);
+          else if (notNull) conditions.push(`(c.custom_fields->>'${cfKey}' IS NOT NULL AND c.custom_fields->>'${cfKey}' != '')`);
+          else if (f.value) {
+            if (f.op === 'exact') { conditions.push(`LOWER(c.custom_fields->>'${cfKey}') = LOWER($${p})`); params.push(f.value); p++; }
+            else { conditions.push(`c.custom_fields->>'${cfKey}' ILIKE $${p}`); params.push(`%${f.value}%`); p++; }
+          }
+        }
+        if (f.field === 'tag') {
+          if (isNull) conditions.push(`NOT EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.contact_email = c.email)`);
+          else if (notNull) conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.contact_email = c.email)`);
+          else if (f.value) {
+            if (f.op === 'exact') { conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = c.email AND LOWER(t.name) = LOWER($${p}))`); params.push(f.value); }
+            else { conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = c.email AND t.name ILIKE $${p})`); params.push(`%${f.value}%`); }
+            p++;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  return { where, params };
+}
+
+// Export contacts as CSV: by explicit emails (selection) or by current filters
+app.post('/api/export', auth, async (req, res) => {
   try {
-    const { campaign, category } = req.query;
-    const params = [];
-    const conditions = [];
-    let p = 1;
-
-    if (campaign) { conditions.push(`cl.campaign_name ILIKE $${p}`); params.push(`%${campaign}%`); p++; }
-    if (category) { conditions.push(`cl.lead_category = $${p}`); params.push(category); p++; }
-
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const body = req.body || {};
+    let where, params;
+    if (Array.isArray(body.emails) && body.emails.length) {
+      where = 'WHERE c.email = ANY($1)';
+      params = [body.emails];
+    } else {
+      ({ where, params } = buildContactsWhere(body));
+    }
 
     const result = await pool.query(`
-      SELECT DISTINCT
-        c.email, c.first_name, c.last_name, c.company, c.phone, c.job_title,
-        c.industry, c.city, c.state,
-        cl.campaign_name AS campaign, cl.lead_category AS category, cl.replied_at
+      SELECT
+        c.email, c.first_name, c.first_name_cleaned, c.last_name,
+        c.company, c.company_cleaned, c.phone, c.job_title, c.department,
+        c.industry, c.city, c.state, c.country, c.company_url,
+        c.linkedin_personal, c.linkedin_company, c.source, c.lead_category,
+        (SELECT STRING_AGG(DISTINCT cl.campaign_name, ' | ') FROM campaign_leads cl WHERE cl.email = c.email) AS campaigns,
+        (SELECT STRING_AGG(DISTINCT cl.lead_category, ', ') FROM campaign_leads cl WHERE cl.email = c.email) AS categories,
+        (SELECT STRING_AGG(DISTINCT t.name, ', ') FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = c.email) AS tags
       FROM contacts c
-      JOIN campaign_leads cl ON cl.email = c.email
       ${where}
-      ORDER BY cl.replied_at DESC NULLS LAST
+      ORDER BY c.email
     `, params);
 
-    const headers = ['email','first_name','last_name','company','phone','job_title','industry','city','state','campaign','category','replied_at'];
+    const headers = ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','campaigns','categories','tags'];
     const csvRows = [headers.join(',')];
     for (const row of result.rows) {
-      csvRows.push(headers.map(h => `"${String(row[h] || '').replace(/"/g, '""')}"`).join(','));
+      csvRows.push(headers.map(h => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(','));
     }
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="export.csv"');
+    res.setHeader('Content-Disposition', 'attachment; filename="contacts_export.csv"');
     res.send('﻿' + csvRows.join('\n'));
   } catch (err) {
     res.status(500).json({ error: err.message });

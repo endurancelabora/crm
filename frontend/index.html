@@ -680,7 +680,7 @@ function renderContacts() {
           </div>
         </div>
       </div>
-      <button class="btn btn-green" id="export-btn">⬇ Export CSV</button>
+      <button class="btn btn-green" id="export-btn" title="${sel.size ? 'Exporta los seleccionados' : 'Exporta todos los que coinciden con el filtro'}">⬇ Export CSV${sel.size ? ` (${sel.size.toLocaleString()})` : ''}</button>
     </div>
   </div>
   ${renderStats()}
@@ -2991,12 +2991,47 @@ async function deleteNote(id) {
   openDrawer(state.drawerEmail);
 }
 
-function exportData(campaign, category) {
-  const params = new URLSearchParams({
-    ...(campaign || state.campaign ? { campaign: campaign || state.campaign } : {}),
-    ...(category || state.category ? { category: category || state.category } : {}),
-  });
-  window.location.href = `${API_BASE}/api/export?${params}&api_key=${API_KEY}`;
+async function exportData(campaignOverride, categoryOverride) {
+  const sel = state.selectedEmails;
+  let body;
+  if (campaignOverride || categoryOverride) {
+    // Per-campaign export button (Campaigns view)
+    body = {
+      ...(campaignOverride ? { campaign: campaignOverride } : {}),
+      ...(categoryOverride ? { category: categoryOverride } : {}),
+    };
+  } else if (sel && sel.size > 0) {
+    body = { emails: [...sel] };
+  } else {
+    body = {
+      ...(state.search && { search: state.search }),
+      ...(state.selectedCampaigns.length && { campaign: state.selectedCampaigns.join('|||') }),
+      ...(state.selectedCategories.length && { category: state.selectedCategories.join('|||') }),
+      ...(state.activeFilters.length && { filters: JSON.stringify(state.activeFilters) }),
+    };
+  }
+  const btn = document.getElementById('export-btn');
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Exportando...'; }
+  try {
+    const res = await fetch(API_BASE + '/api/export', {
+      method: 'POST',
+      headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'contacts_export.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('No se pudo exportar: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
