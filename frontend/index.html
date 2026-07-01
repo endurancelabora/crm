@@ -675,7 +675,6 @@ function renderContacts() {
           </div>
         </div>
       </div>
-      <button class="btn btn-blue" id="import-btn">⬆ Import CSV</button>
       <button class="btn btn-green" id="export-btn">⬇ Export CSV</button>
     </div>
   </div>
@@ -2554,7 +2553,6 @@ function bindContactsEvents() {
     state.page = 1; loadContacts();
   });
   document.getElementById('export-btn')?.addEventListener('click', () => exportData());
-  document.getElementById('import-btn')?.addEventListener('click', openImportModal);
   document.getElementById('limit-select')?.addEventListener('change', e => {
     state.limit = parseInt(e.target.value); state.page = 1; loadContacts();
   });
