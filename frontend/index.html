@@ -902,6 +902,7 @@ function renderCompanies() {
       <thead><tr>
         <th style="width:36px"><input type="checkbox" id="comp-select-all" ${allSelected?'checked':''}></th>
         ${sortTh('company','Company')}
+        <th>Company Cleaned</th>
         ${sortTh('total_contacts','Contacts')}
         ${sortTh('industry','Industries')}
         ${sortTh('city','Cities')}
@@ -922,6 +923,7 @@ function renderCompanies() {
                 <button class="btn btn-ghost comp-cancel-btn" style="padding:4px 10px">Cancel</button>
               </div>
             </td>
+            <td style="color:var(--text2)">${cleanCompanyName(co.company) || '—'}</td>
             <td style="color:var(--text2)">${co.total_contacts}</td>
             <td style="color:var(--text2);font-size:12px;max-width:220px;white-space:normal">${co.industry||'—'}</td>
             <td style="color:var(--text2);font-size:12px;max-width:180px;white-space:normal">${co.city||'—'}</td>
@@ -929,7 +931,7 @@ function renderCompanies() {
               <button class="btn btn-ghost comp-rename-btn" data-comp="${enc}" style="padding:4px 10px;font-size:12px">✏ Rename</button>
             </td>
           </tr>`;
-        }).join('') : `<tr><td colspan="6"><div class="empty"><div class="empty-icon">🏢</div><div class="empty-text">No companies found</div></div></td></tr>`}
+        }).join('') : `<tr><td colspan="7"><div class="empty"><div class="empty-icon">🏢</div><div class="empty-text">No companies found</div></div></td></tr>`}
       </tbody>
     </table>
   </div>
