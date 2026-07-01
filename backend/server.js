@@ -169,10 +169,15 @@ const SORTABLE_COLS = {
   'email': 'c.email', 'first_name': 'c.first_name', 'last_name': 'c.last_name',
   'first_name_cleaned': 'c.first_name_cleaned',
   'company': 'c.company', 'company_cleaned': 'c.company_cleaned',
-  'industry': 'c.industry', 'city': 'c.city',
+  'industry': 'c.industry', 'city': 'c.city', 'state': 'c.state',
+  'job_title': 'c.job_title', 'phone': 'c.phone', 'department': 'c.department',
+  'country': 'c.country', 'source': 'c.source',
   'last_activity': 'last_activity', 'created_at': 'c.created_at',
   'total_campaigns': 'total_campaigns',
   'personalization_status': 'c.personalization_status', 'listkit_id': 'c.listkit_id',
+  'category': 'categories',
+  'flags': '(c.no_contact::int + c.email_bounced::int)',
+  'tags': '(SELECT COUNT(*) FROM contact_tags ct2 WHERE ct2.contact_email = c.email)',
 };
 
 const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name_cleaned','personalization_status','listkit_id','industry','city','state','country','source','job_title','department','phone']);
@@ -293,7 +298,13 @@ app.get('/api/contacts', auth, async (req, res) => {
       return res.json({ emails: r.rows.map(x => x.email) });
     }
 
-    const orderCol = SORTABLE_COLS[sort_by] || 'c.email';
+    let orderCol;
+    if (sort_by && sort_by.startsWith('cf:')) {
+      const cfKey = sort_by.slice(3).replace(/'/g, "''");
+      orderCol = `c.custom_fields->>'${cfKey}'`;
+    } else {
+      orderCol = SORTABLE_COLS[sort_by] || 'c.email';
+    }
     const orderDir = sort_dir === 'DESC' ? 'DESC' : 'ASC';
 
     const total = parseInt((await pool.query(`SELECT COUNT(*) FROM contacts c ${where}`, params)).rows[0].count);
