@@ -35,7 +35,7 @@
     .page-subtitle { color: var(--text2); font-size: 13px; margin-top: 2px; }
     .header-actions { display: flex; gap: 8px; align-items: center; }
 
-    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; padding: 24px 32px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; padding: 24px 32px; }
     .stat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
     .stat-number { font-size: 28px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
     .stat-label { color: var(--text2); font-size: 12px; }
@@ -290,6 +290,8 @@ const COLUMNS = [
   { key: 'first_name_cleaned', label: 'First Name Cleaned' },
   { key: 'company',        label: 'Company' },
   { key: 'company_cleaned', label: 'Company Cleaned' },
+  { key: 'personalization_status', label: 'Status' },
+  { key: 'listkit_id',     label: 'Listkit ID' },
   { key: 'job_title',      label: 'Job Title' },
   { key: 'industry',       label: 'Industry' },
   { key: 'city',           label: 'City' },
@@ -302,7 +304,7 @@ const COLUMNS = [
   { key: 'email_col',      label: 'Email' },
   { key: 'flags',          label: 'Flags' },
 ];
-const DEFAULT_COLS = new Set(['contact','company','total_campaigns','category','tags','last_activity','email_col','flags']);
+const DEFAULT_COLS = new Set(['contact','company','personalization_status','total_campaigns','category','tags','last_activity','email_col','flags']);
 function loadVisibleCols() {
   try { return new Set(JSON.parse(localStorage.getItem('crm_visible_cols')) || [...DEFAULT_COLS]); }
   catch(_) { return new Set(DEFAULT_COLS); }
@@ -327,6 +329,8 @@ const FILTER_FIELDS = [
   { key: 'company',    label: 'Company' },
   { key: 'company_cleaned',    label: 'Company Cleaned' },
   { key: 'first_name_cleaned', label: 'First Name Cleaned' },
+  { key: 'personalization_status', label: 'Status (Ready/Generic)' },
+  { key: 'listkit_id', label: 'Listkit ID' },
   { key: 'industry',   label: 'Industry' },
   { key: 'city',       label: 'City' },
   { key: 'state',      label: 'State' },
@@ -393,6 +397,7 @@ const COLUMN_MAP = {
   'apellido': 'last_name', 'last name': 'last_name', 'last_name': 'last_name',
   'empresa': 'company', 'company name': 'company', 'company': 'company',
   'company_cleaned': 'company_cleaned',
+  'listkit_id': 'listkit_id', 'listkit id': 'listkit_id', 'id de la base': 'listkit_id', 'base_id': 'listkit_id',
   'telefono': 'phone', 'phone number': 'phone', 'phone': 'phone',
   'puesto': 'job_title', 'job_title': 'job_title', 'job title': 'job_title', 'job': 'job_title',
   'departamento': 'department', 'department': 'department',
@@ -427,7 +432,7 @@ const COLUMN_MAP = {
 };
 
 const KNOWN_FIELDS = {
-  contacts: new Set(['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp']),
+  contacts: new Set(['email','first_name','first_name_cleaned','last_name','company','company_cleaned','listkit_id','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp']),
   'campaign-leads': new Set(['email','campaign_name','campaign_id','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal']),
   'campaign-activity': new Set(['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed']),
 };
@@ -728,6 +733,8 @@ function renderContacts() {
         </div>
       </div>
     </div>
+    <button class="btn btn-ghost" id="quick-ready-btn" title="Solo contactos con nombre y empresa OK (para campaña personalizada)" style="border-color:var(--green);color:var(--green)">✅ Listos</button>
+    <button class="btn btn-ghost" id="quick-generic-btn" title="Contactos a los que les falta nombre o empresa (para campaña genérica)">📋 Genéricos</button>
     <button class="btn btn-ghost" id="clear-btn">Clear</button>
     ${state.activeFilters.length ? `<div class="filter-chips">${filterChips}</div>` : ''}
     <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
@@ -744,7 +751,7 @@ function renderContacts() {
       <thead><tr>
         <th style="width:36px"><input type="checkbox" class="row-check" id="select-all" ${allSelected?'checked':''}></th>
         ${state.colOrder.filter(col => vc.has(col.key)).map(col => {
-          const sortMap = {contact:'first_name',first_name_cleaned:'first_name_cleaned',company:'company',company_cleaned:'company_cleaned',industry:'industry',city:'city',total_campaigns:'total_campaigns',last_activity:'last_activity',email_col:'email'};
+          const sortMap = {contact:'first_name',first_name_cleaned:'first_name_cleaned',company:'company',company_cleaned:'company_cleaned',personalization_status:'personalization_status',listkit_id:'listkit_id',industry:'industry',city:'city',total_campaigns:'total_campaigns',last_activity:'last_activity',email_col:'email'};
           const sk = sortMap[col.key];
           return sk ? `<th class="sortable" data-sort="${sk}">${col.label} ${sortIcon(sk)}</th>`
                     : `<th>${col.label}</th>`;
@@ -762,6 +769,8 @@ function renderContacts() {
               case 'first_name_cleaned': return `<td style="color:var(--text2)">${c.first_name_cleaned||'—'}</td>`;
               case 'company':        return `<td style="color:var(--text2)">${c.company||'—'}</td>`;
               case 'company_cleaned': return `<td style="color:var(--text2)">${c.company_cleaned||'—'}</td>`;
+              case 'personalization_status': return `<td>${c.personalization_status === 'Ready' ? '<span class="badge badge-green">Ready</span>' : '<span class="badge badge-gray">Generic</span>'}</td>`;
+              case 'listkit_id':     return `<td style="color:var(--text2)">${c.listkit_id||'—'}</td>`;
               case 'job_title':      return `<td style="color:var(--text2)">${c.job_title||'—'}</td>`;
               case 'industry':       return `<td style="color:var(--text2)">${c.industry||'—'}</td>`;
               case 'city':           return `<td style="color:var(--text2)">${c.city||'—'}</td>`;
@@ -802,6 +811,8 @@ function renderStats() {
     <div class="stat-card accent"><div class="stat-number">${parseInt(s.total_contacts||0).toLocaleString()}</div><div class="stat-label">Total contacts</div></div>
     <div class="stat-card green"><div class="stat-number">${parseInt(s.total_interested||0).toLocaleString()}</div><div class="stat-label">Interested</div></div>
     <div class="stat-card"><div class="stat-number">${parseInt(s.total_campaigns||0).toLocaleString()}</div><div class="stat-label">Campaigns</div></div>
+    <div class="stat-card green"><div class="stat-number">${parseInt(s.total_ready||0).toLocaleString()}</div><div class="stat-label">Ready (personalizar)</div></div>
+    <div class="stat-card"><div class="stat-number">${parseInt(s.total_generic||0).toLocaleString()}</div><div class="stat-label">Generic</div></div>
     <div class="stat-card amber"><div class="stat-number">${parseInt(s.no_contact||0).toLocaleString()}</div><div class="stat-label">No contact</div></div>
     <div class="stat-card red"><div class="stat-number">${parseInt(s.bounced||0).toLocaleString()}</div><div class="stat-label">Bounced</div></div>
   </div>`;
@@ -1365,7 +1376,7 @@ function loadFile(file) {
 }
 
 const ALL_FIELDS = {
-  contacts: ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp'],
+  contacts: ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','listkit_id','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp'],
   'campaign-leads': ['email','campaign_name','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal'],
   'campaign-activity': ['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed'],
 };
@@ -1478,7 +1489,10 @@ async function runImport() {
 
   const BATCH = 200;
   let imported = 0, errors = 0;
-  const rows = importState.mapped;
+  const listkitId = (document.getElementById('import-listkit-id')?.value || '').trim();
+  const rows = (listkitId && importState.type === 'contacts')
+    ? importState.mapped.map(r => ({ ...r, listkit_id: listkitId }))
+    : importState.mapped;
 
   const area = document.getElementById('import-preview-area');
   area.innerHTML += `<div class="import-progress"><div class="import-progress-bar" id="prog-bar" style="width:0%"></div></div>`;
@@ -1685,6 +1699,11 @@ function renderImport() {
         <div class="import-type-btn ${importState.type==='campaign-activity'?'selected':''}" data-type="campaign-activity">
           <div class="import-type-icon">📊</div><div class="import-type-label">Campaign Activity</div>
         </div>
+      </div>
+      <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label style="font-size:13px;color:var(--text2)">ID de la base (Listkit):</label>
+        <input type="text" id="import-listkit-id" placeholder="ej. 12345" style="flex:0 0 200px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text);font-size:13px;outline:none">
+        <span style="font-size:11px;color:var(--text2)">Se guarda en todos los contactos de este import (opcional).</span>
       </div>
       <div class="file-drop" id="file-drop" style="margin-top:14px">
         <div class="file-drop-icon">📄</div>
@@ -2580,6 +2599,13 @@ function bindContactsEvents() {
     state.activeFilters = []; state.selectedCampaigns = []; state.selectedCategories = [];
     state.page = 1; loadContacts();
   });
+  const applyStatusFilter = val => {
+    state.activeFilters = state.activeFilters.filter(f => f.field !== 'personalization_status');
+    state.activeFilters.push({ field: 'personalization_status', op: 'exact', value: val });
+    state.page = 1; loadContacts();
+  };
+  document.getElementById('quick-ready-btn')?.addEventListener('click', () => applyStatusFilter('Ready'));
+  document.getElementById('quick-generic-btn')?.addEventListener('click', () => applyStatusFilter('Generic'));
   document.getElementById('export-btn')?.addEventListener('click', () => exportData());
   document.getElementById('limit-select')?.addEventListener('change', e => {
     state.limit = parseInt(e.target.value); state.page = 1; loadContacts();

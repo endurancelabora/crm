@@ -10,6 +10,12 @@ CREATE TABLE IF NOT EXISTS contacts (
   last_name       VARCHAR(255),
   company         VARCHAR(255),
   company_cleaned VARCHAR(255),
+  listkit_id      VARCHAR(100),
+  personalization_status TEXT GENERATED ALWAYS AS (
+    CASE WHEN first_name_cleaned IS NOT NULL AND first_name_cleaned <> ''
+              AND company_cleaned IS NOT NULL AND company_cleaned <> ''
+         THEN 'Ready' ELSE 'Generic' END
+  ) STORED,
   phone           VARCHAR(100),
   job_title       VARCHAR(255),
   department      VARCHAR(255),
