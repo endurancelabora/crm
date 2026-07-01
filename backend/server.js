@@ -159,12 +159,14 @@ app.post('/webhook/smartlead', async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 const SORTABLE_COLS = {
   'email': 'c.email', 'first_name': 'c.first_name', 'last_name': 'c.last_name',
-  'company': 'c.company', 'industry': 'c.industry', 'city': 'c.city',
+  'first_name_cleaned': 'c.first_name_cleaned',
+  'company': 'c.company', 'company_cleaned': 'c.company_cleaned',
+  'industry': 'c.industry', 'city': 'c.city',
   'last_activity': 'last_activity', 'created_at': 'c.created_at',
   'total_campaigns': 'total_campaigns',
 };
 
-const FILTERABLE_COLS = new Set(['company','industry','city','state','country','source','job_title','department','phone']);
+const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name_cleaned','industry','city','state','country','source','job_title','department','phone']);
 
 app.get('/api/contacts', auth, async (req, res) => {
   try {

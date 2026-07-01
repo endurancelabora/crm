@@ -325,6 +325,8 @@ function saveColOrder(arr) { localStorage.setItem('crm_col_order', JSON.stringif
 
 const FILTER_FIELDS = [
   { key: 'company',    label: 'Company' },
+  { key: 'company_cleaned',    label: 'Company Cleaned' },
+  { key: 'first_name_cleaned', label: 'First Name Cleaned' },
   { key: 'industry',   label: 'Industry' },
   { key: 'city',       label: 'City' },
   { key: 'state',      label: 'State' },
@@ -739,7 +741,7 @@ function renderContacts() {
       <thead><tr>
         <th style="width:36px"><input type="checkbox" class="row-check" id="select-all" ${allSelected?'checked':''}></th>
         ${state.colOrder.filter(col => vc.has(col.key)).map(col => {
-          const sortMap = {contact:'first_name',company:'company',industry:'industry',city:'city',total_campaigns:'total_campaigns',last_activity:'last_activity',email_col:'email'};
+          const sortMap = {contact:'first_name',first_name_cleaned:'first_name_cleaned',company:'company',company_cleaned:'company_cleaned',industry:'industry',city:'city',total_campaigns:'total_campaigns',last_activity:'last_activity',email_col:'email'};
           const sk = sortMap[col.key];
           return sk ? `<th class="sortable" data-sort="${sk}">${col.label} ${sortIcon(sk)}</th>`
                     : `<th>${col.label}</th>`;
