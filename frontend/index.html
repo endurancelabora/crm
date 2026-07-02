@@ -3069,18 +3069,30 @@ function renderCleanupWorkspace() {
     </div>`;
 }
 
-async function loadCleanupValues(field) {
+async function loadCleanupValues(field, preserveScroll) {
+  const scrollTop = preserveScroll ? document.querySelector('#cleanup-workspace .table-wrap')?.scrollTop : null;
   state.cleanupLoading = true;
   refreshCleanupWorkspace();
   const data = await apiFetch('/api/contacts/column-values?' + new URLSearchParams({ field }));
   state.cleanupRows = Array.isArray(data) ? data : [];
   state.cleanupLoading = false;
   refreshCleanupWorkspace();
+  if (scrollTop) {
+    const scrollEl = document.querySelector('#cleanup-workspace .table-wrap');
+    if (scrollEl) scrollEl.scrollTop = scrollTop;
+  }
 }
 
 function refreshCleanupWorkspace() {
   const box = document.getElementById('cleanup-workspace');
-  if (box) { box.innerHTML = renderCleanupWorkspace(); bindCleanupWorkspaceEvents(); }
+  if (!box) return;
+  const scrollTop = box.querySelector('.table-wrap')?.scrollTop;
+  box.innerHTML = renderCleanupWorkspace();
+  bindCleanupWorkspaceEvents();
+  if (scrollTop) {
+    const scrollEl = box.querySelector('.table-wrap');
+    if (scrollEl) scrollEl.scrollTop = scrollTop;
+  }
 }
 
 function updateCleanupSelectedCount() {
@@ -3116,7 +3128,7 @@ async function applyCleanupMerge() {
   if (res?.ok) {
     state.cleanupSelected = new Set();
     if (status) status.textContent = `✅ ${res.updated} contacto${res.updated===1?'':'s'} actualizados.`;
-    await loadCleanupValues(field);
+    await loadCleanupValues(field, true);
   } else {
     if (status) status.textContent = '';
     alert('Error: ' + (res?.error || 'unknown'));
@@ -3186,7 +3198,7 @@ function bindCleanupWorkspaceEvents() {
       });
       if (res?.ok) {
         state.cleanupSelected.delete(originalValue);
-        await loadCleanupValues(state.cleanupField);
+        await loadCleanupValues(state.cleanupField, true);
       } else {
         btn.textContent = 'Save'; btn.disabled = false;
         alert('Error: ' + (res?.error || 'unknown'));
