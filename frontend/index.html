@@ -372,6 +372,7 @@ let state = {
   nameSearch: '', nameSort: 'first_name', nameDir: 'ASC',
   campSearch: '', campSort: 'campaign_name', campDir: 'ASC',
   cleanupField: '', cleanupRows: [], cleanupLoading: false,
+  cleanupSort: 'count', cleanupDir: 'DESC', cleanupSearch: '', cleanupSelected: new Set(),
 };
 
 // Sort icon helper
@@ -3005,6 +3006,14 @@ function renderCleanup() {
   <div id="cleanup-workspace">${renderCleanupWorkspace()}</div>`;
 }
 
+function sortCleanupRows(rows) {
+  const dir = state.cleanupDir === 'ASC' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    if (state.cleanupSort === 'value') return String(a.value).localeCompare(String(b.value), 'es') * dir;
+    return (a.count - b.count) * dir;
+  });
+}
+
 function renderCleanupWorkspace() {
   if (!state.cleanupField) {
     return `<div style="color:var(--text2);font-size:13px">Elige una columna arriba para ver sus valores.</div>`;
@@ -3012,29 +3021,50 @@ function renderCleanupWorkspace() {
   if (state.cleanupLoading) {
     return `<div style="color:var(--text2);font-size:13px">Cargando valores…</div>`;
   }
-  const rows = state.cleanupRows || [];
+  const rows = sortCleanupRows(state.cleanupRows || []);
+  const sd = col => col === state.cleanupSort ? (state.cleanupDir === 'ASC' ? ' ▲' : ' ▼') : ' ⇅';
+  const nSel = state.cleanupSelected.size;
   return `
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
-      <input class="filter-input" type="text" id="cleanup-search" placeholder="🔍 Buscar valor..." style="width:260px">
+      <input class="filter-input" type="text" id="cleanup-search" placeholder="🔍 Buscar valor..." value="${(state.cleanupSearch||'').replace(/"/g,'&quot;')}" style="width:260px">
       <span style="color:var(--text2);font-size:12px">${rows.length} valor${rows.length===1?'':'es'} distintos</span>
-      <span id="cleanup-selected-count" style="color:var(--text2);font-size:12px;margin-left:auto">0 seleccionados</span>
+      <span id="cleanup-selected-count" style="color:var(--text2);font-size:12px;margin-left:auto">${nSel} seleccionado${nSel===1?'':'s'}</span>
     </div>
     <div class="table-wrap scrollbox" style="max-height:420px">
       <table class="table">
-        <thead><tr><th style="width:36px"></th><th>Valor</th><th style="width:110px">Contactos</th></tr></thead>
+        <thead><tr>
+          <th style="width:36px"></th>
+          <th class="sortable" data-cleanup-sort="value">Valor${sd('value')}</th>
+          <th class="sortable" data-cleanup-sort="count" style="width:110px">Contactos${sd('count')}</th>
+        </tr></thead>
         <tbody id="cleanup-values-body">
-          ${rows.length ? rows.map(r => `
-          <tr data-cval="${String(r.value).toLowerCase().replace(/"/g,'&quot;')}">
-            <td><input type="checkbox" class="cleanup-check" value="${String(r.value).replace(/"/g,'&quot;')}"></td>
-            <td>${r.value}</td>
+          ${rows.length ? rows.map(r => {
+            const enc = encodeURIComponent(r.value);
+            const escaped = String(r.value).replace(/"/g,'&quot;');
+            const checked = state.cleanupSelected.has(r.value);
+            return `
+          <tr data-cval="${escaped.toLowerCase()}">
+            <td><input type="checkbox" class="cleanup-check" value="${enc}" ${checked?'checked':''}></td>
+            <td>
+              <div class="cleanup-value-view" data-cenc="${enc}" style="display:flex;align-items:center;gap:8px">
+                <span>${r.value}</span>
+                <button class="btn btn-ghost cleanup-edit-btn" data-cenc="${enc}" style="padding:2px 8px;font-size:11px">✏</button>
+              </div>
+              <div class="cleanup-value-edit" data-cenc="${enc}" style="display:none;align-items:center;gap:6px">
+                <input class="filter-input cleanup-edit-input" value="${escaped}" style="width:280px">
+                <button class="btn btn-green cleanup-edit-save-btn" style="padding:4px 10px">Save</button>
+                <button class="btn btn-ghost cleanup-edit-cancel-btn" style="padding:4px 10px">Cancel</button>
+              </div>
+            </td>
             <td style="color:var(--text2)">${r.count}</td>
-          </tr>`).join('') : `<tr><td colspan="3" style="color:var(--text2);padding:16px 0;text-align:center">Sin valores para esta columna.</td></tr>`}
+          </tr>`;
+          }).join('') : `<tr><td colspan="3" style="color:var(--text2);padding:16px 0;text-align:center">Sin valores para esta columna.</td></tr>`}
         </tbody>
       </table>
     </div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
       <input class="filter-input" type="text" id="cleanup-merge-value" placeholder="Valor correcto (vacío = borrar el campo)" style="flex:1;max-width:320px">
-      <button class="btn btn-primary" id="cleanup-merge-btn" disabled>Fusionar seleccionados</button>
+      <button class="btn btn-primary" id="cleanup-merge-btn" ${nSel===0?'disabled':''}>Fusionar seleccionados</button>
       <span id="cleanup-status" style="color:var(--text2);font-size:12px"></span>
     </div>`;
 }
@@ -3054,16 +3084,23 @@ function refreshCleanupWorkspace() {
 }
 
 function updateCleanupSelectedCount() {
-  const n = document.querySelectorAll('.cleanup-check:checked').length;
+  const n = state.cleanupSelected.size;
   const countEl = document.getElementById('cleanup-selected-count');
   if (countEl) countEl.textContent = `${n} seleccionado${n===1?'':'s'}`;
   const btn = document.getElementById('cleanup-merge-btn');
   if (btn) btn.disabled = n === 0;
 }
 
+function applyCleanupSearchFilter(q) {
+  const query = (q || '').trim().toLowerCase();
+  document.querySelectorAll('#cleanup-values-body tr[data-cval]').forEach(tr => {
+    tr.style.display = (!query || tr.dataset.cval.includes(query)) ? '' : 'none';
+  });
+}
+
 async function applyCleanupMerge() {
   const field = state.cleanupField;
-  const values = [...document.querySelectorAll('.cleanup-check:checked')].map(cb => cb.value);
+  const values = [...state.cleanupSelected];
   if (!values.length) return;
   const newValue = document.getElementById('cleanup-merge-value')?.value.trim() || '';
   const label = newValue ? `"${newValue}"` : '(vacío / borrar el campo)';
@@ -3077,6 +3114,7 @@ async function applyCleanupMerge() {
     body: JSON.stringify({ field, values, newValue }),
   });
   if (res?.ok) {
+    state.cleanupSelected = new Set();
     if (status) status.textContent = `✅ ${res.updated} contacto${res.updated===1?'':'s'} actualizados.`;
     await loadCleanupValues(field);
   } else {
@@ -3087,16 +3125,80 @@ async function applyCleanupMerge() {
 }
 
 function bindCleanupWorkspaceEvents() {
-  document.getElementById('cleanup-search')?.addEventListener('input', e => {
-    const q = e.target.value.trim().toLowerCase();
-    document.querySelectorAll('#cleanup-values-body tr[data-cval]').forEach(tr => {
-      tr.style.display = (!q || tr.dataset.cval.includes(q)) ? '' : 'none';
+  const searchInput = document.getElementById('cleanup-search');
+  if (searchInput) {
+    applyCleanupSearchFilter(state.cleanupSearch);
+    searchInput.addEventListener('input', e => {
+      state.cleanupSearch = e.target.value;
+      applyCleanupSearchFilter(state.cleanupSearch);
+    });
+  }
+  document.querySelectorAll('.cleanup-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const val = decodeURIComponent(cb.value);
+      if (cb.checked) state.cleanupSelected.add(val); else state.cleanupSelected.delete(val);
+      updateCleanupSelectedCount();
     });
   });
-  document.querySelectorAll('.cleanup-check').forEach(cb => {
-    cb.addEventListener('change', updateCleanupSelectedCount);
+  document.querySelectorAll('[data-cleanup-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.cleanupSort;
+      if (state.cleanupSort === col) state.cleanupDir = state.cleanupDir === 'ASC' ? 'DESC' : 'ASC';
+      else { state.cleanupSort = col; state.cleanupDir = col === 'value' ? 'ASC' : 'DESC'; }
+      refreshCleanupWorkspace();
+    });
   });
   document.getElementById('cleanup-merge-btn')?.addEventListener('click', applyCleanupMerge);
+
+  // Inline edit of a single value (like the Companies "Rename" flow)
+  document.querySelectorAll('.cleanup-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.cenc;
+      document.querySelector(`.cleanup-value-view[data-cenc="${key}"]`).style.display = 'none';
+      const editRow = document.querySelector(`.cleanup-value-edit[data-cenc="${key}"]`);
+      editRow.style.display = 'flex';
+      const inp = editRow.querySelector('input');
+      inp.focus(); inp.select();
+    });
+  });
+  document.querySelectorAll('.cleanup-edit-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.closest('.cleanup-value-edit').dataset.cenc;
+      document.querySelector(`.cleanup-value-view[data-cenc="${key}"]`).style.display = '';
+      document.querySelector(`.cleanup-value-edit[data-cenc="${key}"]`).style.display = 'none';
+    });
+  });
+  document.querySelectorAll('.cleanup-edit-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const editRow = btn.closest('.cleanup-value-edit');
+      const enc = editRow.dataset.cenc;
+      const originalValue = decodeURIComponent(enc);
+      const newValue = editRow.querySelector('input').value.trim();
+      if (!newValue || newValue === originalValue) {
+        document.querySelector(`.cleanup-value-view[data-cenc="${enc}"]`).style.display = '';
+        editRow.style.display = 'none';
+        return;
+      }
+      btn.textContent = 'Guardando…'; btn.disabled = true;
+      const res = await apiFetch('/api/contacts/merge-values', {
+        method: 'POST',
+        body: JSON.stringify({ field: state.cleanupField, values: [originalValue], newValue }),
+      });
+      if (res?.ok) {
+        state.cleanupSelected.delete(originalValue);
+        await loadCleanupValues(state.cleanupField);
+      } else {
+        btn.textContent = 'Save'; btn.disabled = false;
+        alert('Error: ' + (res?.error || 'unknown'));
+      }
+    });
+  });
+  document.querySelectorAll('.cleanup-edit-input').forEach(inp => {
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') inp.closest('.cleanup-value-edit').querySelector('.cleanup-edit-save-btn').click();
+      if (e.key === 'Escape') inp.closest('.cleanup-value-edit').querySelector('.cleanup-edit-cancel-btn').click();
+    });
+  });
 }
 
 function bindCleanupEvents() {
@@ -3104,6 +3206,8 @@ function bindCleanupEvents() {
     const field = e.target.value;
     state.cleanupField = field;
     state.cleanupRows = [];
+    state.cleanupSelected = new Set();
+    state.cleanupSearch = '';
     if (!field) { refreshCleanupWorkspace(); return; }
     loadCleanupValues(field);
   });
