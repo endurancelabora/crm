@@ -371,6 +371,7 @@ let state = {
   names: [], nameTotal: 0, namePage: 1, nameLimit: 20,
   nameSearch: '', nameSort: 'first_name', nameDir: 'ASC',
   campSearch: '', campSort: 'campaign_name', campDir: 'ASC',
+  cleanupField: '', cleanupRows: [], cleanupLoading: false,
 };
 
 // Sort icon helper
@@ -566,6 +567,7 @@ function renderApp() {
       <div class="nav-item ${state.view==='companies'?'active':''}" data-view="companies"><span class="nav-icon">🏢</span> Companies</div>
       <div class="nav-item ${state.view==='names'?'active':''}" data-view="names"><span class="nav-icon">🧑</span> Names</div>
       <div class="nav-item ${state.view==='campaigns'?'active':''}" data-view="campaigns"><span class="nav-icon">📣</span> Campaigns</div>
+      <div class="nav-item ${state.view==='cleanup'?'active':''}" data-view="cleanup"><span class="nav-icon">🧹</span> Limpieza</div>
       <div class="nav-item ${state.view==='import'?'active':''}" data-view="import"><span class="nav-icon">📥</span> Import</div>
       <div class="nav-item ${state.view==='admin'?'active':''}" data-view="admin" style="margin-top:auto"><span class="nav-icon">⚙</span> Admin</div>
       <div style="margin-top:auto; padding: 16px 20px;">
@@ -575,7 +577,7 @@ function renderApp() {
       </div>
     </aside>
     <div class="main" id="main-content">
-      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'names' ? renderNames() : state.view === 'import' ? renderImport() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
+      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'names' ? renderNames() : state.view === 'cleanup' ? renderCleanup() : state.view === 'import' ? renderImport() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
     </div>
   </div>
   ${renderDrawer()}
@@ -1824,6 +1826,7 @@ function bindApp() {
   if (state.view === 'names') bindNamesEvents();
   if (state.view === 'admin') bindAdminEvents();
   if (state.view === 'import') bindImport();
+  if (state.view === 'cleanup') bindCleanupEvents();
 
   document.getElementById('drawer-overlay')?.addEventListener('click', closeDrawer);
   document.getElementById('close-drawer')?.addEventListener('click', closeDrawer);
@@ -2978,6 +2981,133 @@ function bindNamesEvents() {
   document.getElementById('name-limit-select')?.addEventListener('change', e => {
     state.nameLimit = parseInt(e.target.value); state.namePage = 1; loadNames();
   });
+}
+
+// ─── Cleanup tab: pick a column, review its distinct values, merge duplicates ───
+function renderCleanup() {
+  const fieldOptions = [
+    ...FILTER_FIELDS.filter(f => f.key !== 'tag'),
+    ...state.customFieldKeys.map(k => ({ key: 'cf:' + k, label: k })),
+  ];
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Limpieza de datos</div>
+      <div class="page-subtitle">Elige una columna, revisa sus valores existentes y fusiona los que estén mal escritos o duplicados</div>
+    </div>
+  </div>
+  <div class="filters" style="margin-bottom:16px">
+    <select class="filter-input" id="cleanup-field-select" style="width:260px">
+      <option value="">Selecciona una columna…</option>
+      ${fieldOptions.map(f => `<option value="${f.key}" ${state.cleanupField===f.key?'selected':''}>${f.label}</option>`).join('')}
+    </select>
+  </div>
+  <div id="cleanup-workspace">${renderCleanupWorkspace()}</div>`;
+}
+
+function renderCleanupWorkspace() {
+  if (!state.cleanupField) {
+    return `<div style="color:var(--text2);font-size:13px">Elige una columna arriba para ver sus valores.</div>`;
+  }
+  if (state.cleanupLoading) {
+    return `<div style="color:var(--text2);font-size:13px">Cargando valores…</div>`;
+  }
+  const rows = state.cleanupRows || [];
+  return `
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+      <input class="filter-input" type="text" id="cleanup-search" placeholder="🔍 Buscar valor..." style="width:260px">
+      <span style="color:var(--text2);font-size:12px">${rows.length} valor${rows.length===1?'':'es'} distintos</span>
+      <span id="cleanup-selected-count" style="color:var(--text2);font-size:12px;margin-left:auto">0 seleccionados</span>
+    </div>
+    <div class="table-wrap scrollbox" style="max-height:420px">
+      <table class="table">
+        <thead><tr><th style="width:36px"></th><th>Valor</th><th style="width:110px">Contactos</th></tr></thead>
+        <tbody id="cleanup-values-body">
+          ${rows.length ? rows.map(r => `
+          <tr data-cval="${String(r.value).toLowerCase().replace(/"/g,'&quot;')}">
+            <td><input type="checkbox" class="cleanup-check" value="${String(r.value).replace(/"/g,'&quot;')}"></td>
+            <td>${r.value}</td>
+            <td style="color:var(--text2)">${r.count}</td>
+          </tr>`).join('') : `<tr><td colspan="3" style="color:var(--text2);padding:16px 0;text-align:center">Sin valores para esta columna.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <input class="filter-input" type="text" id="cleanup-merge-value" placeholder="Valor correcto (vacío = borrar el campo)" style="flex:1;max-width:320px">
+      <button class="btn btn-primary" id="cleanup-merge-btn" disabled>Fusionar seleccionados</button>
+      <span id="cleanup-status" style="color:var(--text2);font-size:12px"></span>
+    </div>`;
+}
+
+async function loadCleanupValues(field) {
+  state.cleanupLoading = true;
+  refreshCleanupWorkspace();
+  const data = await apiFetch('/api/contacts/column-values?' + new URLSearchParams({ field }));
+  state.cleanupRows = Array.isArray(data) ? data : [];
+  state.cleanupLoading = false;
+  refreshCleanupWorkspace();
+}
+
+function refreshCleanupWorkspace() {
+  const box = document.getElementById('cleanup-workspace');
+  if (box) { box.innerHTML = renderCleanupWorkspace(); bindCleanupWorkspaceEvents(); }
+}
+
+function updateCleanupSelectedCount() {
+  const n = document.querySelectorAll('.cleanup-check:checked').length;
+  const countEl = document.getElementById('cleanup-selected-count');
+  if (countEl) countEl.textContent = `${n} seleccionado${n===1?'':'s'}`;
+  const btn = document.getElementById('cleanup-merge-btn');
+  if (btn) btn.disabled = n === 0;
+}
+
+async function applyCleanupMerge() {
+  const field = state.cleanupField;
+  const values = [...document.querySelectorAll('.cleanup-check:checked')].map(cb => cb.value);
+  if (!values.length) return;
+  const newValue = document.getElementById('cleanup-merge-value')?.value.trim() || '';
+  const label = newValue ? `"${newValue}"` : '(vacío / borrar el campo)';
+  if (!confirm(`¿Fusionar ${values.length} valor${values.length===1?'':'es'} en ${label}? Esto actualiza todos los contactos con esos valores.`)) return;
+  const btn = document.getElementById('cleanup-merge-btn');
+  const status = document.getElementById('cleanup-status');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Aplicando…';
+  const res = await apiFetch('/api/contacts/merge-values', {
+    method: 'POST',
+    body: JSON.stringify({ field, values, newValue }),
+  });
+  if (res?.ok) {
+    if (status) status.textContent = `✅ ${res.updated} contacto${res.updated===1?'':'s'} actualizados.`;
+    await loadCleanupValues(field);
+  } else {
+    if (status) status.textContent = '';
+    alert('Error: ' + (res?.error || 'unknown'));
+    if (btn) btn.disabled = false;
+  }
+}
+
+function bindCleanupWorkspaceEvents() {
+  document.getElementById('cleanup-search')?.addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#cleanup-values-body tr[data-cval]').forEach(tr => {
+      tr.style.display = (!q || tr.dataset.cval.includes(q)) ? '' : 'none';
+    });
+  });
+  document.querySelectorAll('.cleanup-check').forEach(cb => {
+    cb.addEventListener('change', updateCleanupSelectedCount);
+  });
+  document.getElementById('cleanup-merge-btn')?.addEventListener('click', applyCleanupMerge);
+}
+
+function bindCleanupEvents() {
+  document.getElementById('cleanup-field-select')?.addEventListener('change', e => {
+    const field = e.target.value;
+    state.cleanupField = field;
+    state.cleanupRows = [];
+    if (!field) { refreshCleanupWorkspace(); return; }
+    loadCleanupValues(field);
+  });
+  bindCleanupWorkspaceEvents();
 }
 
 async function loadCampaignsOnly() {

@@ -405,6 +405,55 @@ app.get('/api/contacts/column-values', auth, async (req, res) => {
   }
 });
 
+// Cleanup tab: rename/merge a set of existing values for a column into one canonical
+// value across ALL matching contacts (not scoped to the Contacts page filters).
+// newValue === '' clears the field (sets NULL / removes the custom field key).
+app.post('/api/contacts/merge-values', auth, async (req, res) => {
+  try {
+    const { field, values, newValue } = req.body;
+    if (!field || !Array.isArray(values) || !values.length) {
+      return res.status(400).json({ error: 'field and values[] required' });
+    }
+    const clear = !newValue;
+
+    let result;
+    if (field.startsWith('cf:')) {
+      const cfKey = field.slice(3).replace(/'/g, "''");
+      if (clear) {
+        result = await pool.query(
+          `UPDATE contacts SET custom_fields = custom_fields - '${cfKey}', updated_at = NOW()
+           WHERE custom_fields->>'${cfKey}' = ANY($1)`,
+          [values]
+        );
+      } else {
+        result = await pool.query(
+          `UPDATE contacts SET custom_fields = jsonb_set(COALESCE(custom_fields, '{}'::jsonb), '{${cfKey}}', to_jsonb($1::text)), updated_at = NOW()
+           WHERE custom_fields->>'${cfKey}' = ANY($2)`,
+          [newValue, values]
+        );
+      }
+    } else if (FILTERABLE_COLS.has(field)) {
+      if (clear) {
+        result = await pool.query(
+          `UPDATE contacts SET ${field} = NULL, updated_at = NOW() WHERE ${field} = ANY($1)`,
+          [values]
+        );
+      } else {
+        result = await pool.query(
+          `UPDATE contacts SET ${field} = $1, updated_at = NOW() WHERE ${field} = ANY($2)`,
+          [newValue, values]
+        );
+      }
+    } else {
+      return res.status(400).json({ error: 'field not filterable' });
+    }
+
+    res.json({ ok: true, updated: result.rowCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/contacts/:email', auth, async (req, res) => {
   try {
     const { email } = req.params;
