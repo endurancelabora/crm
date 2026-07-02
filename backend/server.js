@@ -182,114 +182,139 @@ const SORTABLE_COLS = {
 
 const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name_cleaned','personalization_status','listkit_id','industry','city','state','country','source','job_title','department','phone']);
 
-app.get('/api/contacts', auth, async (req, res) => {
-  try {
-    const { search, campaign, category, no_contact, bounced, page = 1, limit = 50, sort_by = 'email', sort_dir = 'ASC', filters } = req.query;
-    const offset = (page - 1) * limit;
-    const params = [];
-    const conditions = [];
-    let p = 1;
+// Builds a parameterized WHERE clause shared by /api/contacts and /api/contacts/column-values.
+// Pass excludeField to skip any active filter on that field (used so the Excel-style value
+// picker for a column shows values consistent with all OTHER active filters, "cascading").
+// op: 'contains' | 'exact' | 'empty' | 'not_empty' | 'in'
+function buildContactWhere(query, { excludeField } = {}) {
+  const { search, campaign, category, no_contact, bounced, filters } = query;
+  const params = [];
+  const conditions = [];
+  let p = 1;
 
-    if (search) {
-      conditions.push(`(c.email ILIKE $${p} OR c.first_name ILIKE $${p} OR c.last_name ILIKE $${p} OR c.company ILIKE $${p})`);
-      params.push(`%${search}%`); p++;
+  if (search) {
+    conditions.push(`(c.email ILIKE $${p} OR c.first_name ILIKE $${p} OR c.last_name ILIKE $${p} OR c.company ILIKE $${p})`);
+    params.push(`%${search}%`); p++;
+  }
+  // Multi-campaign filter (comma-separated)
+  if (campaign) {
+    const campsArr = campaign.split('|||').map(s => s.trim()).filter(Boolean);
+    const wantNoCampaign = campsArr.includes('__no_campaign__');
+    const realCamps = campsArr.filter(c => c !== '__no_campaign__');
+    const orParts = [];
+    if (realCamps.length === 1) {
+      orParts.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name ILIKE $${p})`);
+      params.push(`%${realCamps[0]}%`); p++;
+    } else if (realCamps.length > 1) {
+      orParts.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name = ANY($${p}))`);
+      params.push(realCamps); p++;
     }
-    // Multi-campaign filter (comma-separated)
-    if (campaign) {
-      const campsArr = campaign.split('|||').map(s => s.trim()).filter(Boolean);
-      const wantNoCampaign = campsArr.includes('__no_campaign__');
-      const realCamps = campsArr.filter(c => c !== '__no_campaign__');
-      const orParts = [];
-      if (realCamps.length === 1) {
-        orParts.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name ILIKE $${p})`);
-        params.push(`%${realCamps[0]}%`); p++;
-      } else if (realCamps.length > 1) {
-        orParts.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.campaign_name = ANY($${p}))`);
-        params.push(realCamps); p++;
-      }
-      if (wantNoCampaign) {
-        orParts.push(`NOT EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email)`);
-      }
-      if (orParts.length) conditions.push('(' + orParts.join(' OR ') + ')');
+    if (wantNoCampaign) {
+      orParts.push(`NOT EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email)`);
     }
-    // Multi-category filter (comma-separated)
-    if (category) {
-      const catsArr = category.split('|||').map(s => s.trim()).filter(Boolean);
-      if (catsArr.length === 1) {
-        conditions.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.lead_category = $${p})`);
-        params.push(catsArr[0]); p++;
-      } else if (catsArr.length > 1) {
-        conditions.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.lead_category = ANY($${p}))`);
-        params.push(catsArr); p++;
-      }
+    if (orParts.length) conditions.push('(' + orParts.join(' OR ') + ')');
+  }
+  // Multi-category filter (comma-separated)
+  if (category) {
+    const catsArr = category.split('|||').map(s => s.trim()).filter(Boolean);
+    if (catsArr.length === 1) {
+      conditions.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.lead_category = $${p})`);
+      params.push(catsArr[0]); p++;
+    } else if (catsArr.length > 1) {
+      conditions.push(`EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.email = c.email AND cl.lead_category = ANY($${p}))`);
+      params.push(catsArr); p++;
     }
-    if (no_contact === 'true') conditions.push(`c.no_contact = TRUE`);
-    if (bounced === 'true') conditions.push(`c.email_bounced = TRUE`);
+  }
+  if (no_contact === 'true') conditions.push(`c.no_contact = TRUE`);
+  if (bounced === 'true') conditions.push(`c.email_bounced = TRUE`);
 
-    // Dynamic field filters: [{field, value, op}]
-    // op: 'contains' | 'exact' | 'empty' | 'not_empty'
-    if (filters) {
-      try {
-        const fArr = JSON.parse(filters);
-        for (const f of fArr) {
-          const isNull  = f.op === 'empty';
-          const notNull = f.op === 'not_empty';
+  // Dynamic field filters: [{field, value, op}]
+  if (filters) {
+    try {
+      const fArr = JSON.parse(filters);
+      for (const f of fArr) {
+        if (excludeField && f.field === excludeField) continue;
+        const isNull  = f.op === 'empty';
+        const notNull = f.op === 'not_empty';
+        const isIn    = f.op === 'in' && Array.isArray(f.value);
 
-          if (FILTERABLE_COLS.has(f.field)) {
-            if (isNull) {
-              conditions.push(`(c.${f.field} IS NULL OR c.${f.field} = '')`);
-            } else if (notNull) {
-              conditions.push(`(c.${f.field} IS NOT NULL AND c.${f.field} != '')`);
-            } else if (f.value) {
-              if (f.op === 'exact') {
-                conditions.push(`LOWER(c.${f.field}) = LOWER($${p})`);
-                params.push(f.value); p++;
-              } else {
-                conditions.push(`c.${f.field} ILIKE $${p}`);
-                params.push(`%${f.value}%`); p++;
-              }
+        if (FILTERABLE_COLS.has(f.field)) {
+          if (isNull) {
+            conditions.push(`(c.${f.field} IS NULL OR c.${f.field} = '')`);
+          } else if (notNull) {
+            conditions.push(`(c.${f.field} IS NOT NULL AND c.${f.field} != '')`);
+          } else if (isIn) {
+            if (f.value.length) {
+              conditions.push(`c.${f.field} = ANY($${p})`);
+              params.push(f.value); p++;
             }
-          }
-
-          // Custom field filter: field starts with 'cf:'
-          if (f.field && f.field.startsWith('cf:')) {
-            const cfKey = f.field.slice(3).replace(/'/g, "''");
-            if (isNull) {
-              conditions.push(`(c.custom_fields->>'${cfKey}' IS NULL OR c.custom_fields->>'${cfKey}' = '')`);
-            } else if (notNull) {
-              conditions.push(`(c.custom_fields->>'${cfKey}' IS NOT NULL AND c.custom_fields->>'${cfKey}' != '')`);
-            } else if (f.value) {
-              if (f.op === 'exact') {
-                conditions.push(`LOWER(c.custom_fields->>'${cfKey}') = LOWER($${p})`);
-                params.push(f.value); p++;
-              } else {
-                conditions.push(`c.custom_fields->>'${cfKey}' ILIKE $${p}`);
-                params.push(`%${f.value}%`); p++;
-              }
-            }
-          }
-
-          if (f.field === 'tag') {
-            if (isNull) {
-              conditions.push(`NOT EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.contact_email = c.email)`);
-            } else if (notNull) {
-              conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.contact_email = c.email)`);
-            } else if (f.value) {
-              if (f.op === 'exact') {
-                conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = c.email AND LOWER(t.name) = LOWER($${p}))`);
-                params.push(f.value);
-              } else {
-                conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = c.email AND t.name ILIKE $${p})`);
-                params.push(`%${f.value}%`);
-              }
-              p++;
+          } else if (f.value) {
+            if (f.op === 'exact') {
+              conditions.push(`LOWER(c.${f.field}) = LOWER($${p})`);
+              params.push(f.value); p++;
+            } else {
+              conditions.push(`c.${f.field} ILIKE $${p}`);
+              params.push(`%${f.value}%`); p++;
             }
           }
         }
-      } catch (_) {}
-    }
 
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        // Custom field filter: field starts with 'cf:'
+        if (f.field && f.field.startsWith('cf:')) {
+          const cfKey = f.field.slice(3).replace(/'/g, "''");
+          if (isNull) {
+            conditions.push(`(c.custom_fields->>'${cfKey}' IS NULL OR c.custom_fields->>'${cfKey}' = '')`);
+          } else if (notNull) {
+            conditions.push(`(c.custom_fields->>'${cfKey}' IS NOT NULL AND c.custom_fields->>'${cfKey}' != '')`);
+          } else if (isIn) {
+            if (f.value.length) {
+              conditions.push(`c.custom_fields->>'${cfKey}' = ANY($${p})`);
+              params.push(f.value); p++;
+            }
+          } else if (f.value) {
+            if (f.op === 'exact') {
+              conditions.push(`LOWER(c.custom_fields->>'${cfKey}') = LOWER($${p})`);
+              params.push(f.value); p++;
+            } else {
+              conditions.push(`c.custom_fields->>'${cfKey}' ILIKE $${p}`);
+              params.push(`%${f.value}%`); p++;
+            }
+          }
+        }
+
+        if (f.field === 'tag') {
+          if (isNull) {
+            conditions.push(`NOT EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.contact_email = c.email)`);
+          } else if (notNull) {
+            conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.contact_email = c.email)`);
+          } else if (isIn) {
+            if (f.value.length) {
+              conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = c.email AND t.name = ANY($${p}))`);
+              params.push(f.value); p++;
+            }
+          } else if (f.value) {
+            if (f.op === 'exact') {
+              conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = c.email AND LOWER(t.name) = LOWER($${p}))`);
+              params.push(f.value); p++;
+            } else {
+              conditions.push(`EXISTS (SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = c.email AND t.name ILIKE $${p})`);
+              params.push(`%${f.value}%`); p++;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  return { where, params };
+}
+
+app.get('/api/contacts', auth, async (req, res) => {
+  try {
+    const { page = 1, limit = 50, sort_by = 'email', sort_dir = 'ASC' } = req.query;
+    const offset = (page - 1) * limit;
+    const { where, params } = buildContactWhere(req.query);
 
     // Lightweight mode: return only the matching emails across ALL pages (no limit),
     // used by "select all matching" in the UI.
@@ -324,7 +349,7 @@ app.get('/api/contacts', auth, async (req, res) => {
          WHERE ct.contact_email = c.email) AS tags
       FROM contacts c ${where}
       ORDER BY ${orderCol} ${orderDir} NULLS LAST
-      LIMIT $${p} OFFSET $${p+1}
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `, [...params, limit, offset]);
 
     res.json({ total, page: parseInt(page), limit: parseInt(limit), data: rows.rows });
@@ -343,6 +368,41 @@ app.get('/api/contacts/custom-field-keys', auth, async (req, res) => {
     `);
     res.json(result.rows.map(r => r.key));
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Excel-style filter picker: distinct values (+counts) for a column, respecting all
+// OTHER currently active filters (search/campaign/category/filters minus this field).
+app.get('/api/contacts/column-values', auth, async (req, res) => {
+  try {
+    const { field } = req.query;
+    if (!field) return res.status(400).json({ error: 'field required' });
+
+    let col;
+    if (field.startsWith('cf:')) {
+      const cfKey = field.slice(3).replace(/'/g, "''");
+      col = `c.custom_fields->>'${cfKey}'`;
+    } else if (FILTERABLE_COLS.has(field)) {
+      col = `c.${field}`;
+    } else {
+      return res.status(400).json({ error: 'field not filterable' });
+    }
+
+    const { where, params } = buildContactWhere(req.query, { excludeField: field });
+    const nullCheck = `${col} IS NOT NULL AND ${col} != ''`;
+    const fullWhere = where ? `${where} AND ${nullCheck}` : `WHERE ${nullCheck}`;
+
+    const result = await pool.query(`
+      SELECT ${col} AS value, COUNT(*)::int AS count
+      FROM contacts c
+      ${fullWhere}
+      GROUP BY ${col}
+      ORDER BY count DESC, value ASC
+      LIMIT 1000
+    `, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/contacts/:email', auth, async (req, res) => {

@@ -348,6 +348,9 @@ const TAG_COLORS = ['#5b6af0','#22c55e','#f59e0b','#ef4444','#3b82f6','#a855f7',
 let headerTagColor = TAG_COLORS[0]; // selected color for the header Tags panel
 let editingTagId = null; // id of the tag being edited in the header Tags panel
 
+let filterValuesField = null; // field currently shown in the Excel-style value picker (Add Filter panel)
+let filterValuesRows = null;  // [{value,count}] fetched for filterValuesField, or null while loading
+
 let state = {
   view: 'contacts',
   contacts: [], total: 0, page: 1,
@@ -614,8 +617,10 @@ function renderContacts() {
     </div>` : '';
 
   const filterChips = state.activeFilters.map((f,i) => {
-    const opLabel = f.op==='exact' ? '=' : f.op==='empty' ? 'is empty' : f.op==='not_empty' ? 'has value' : '~';
-    const valPart = (f.op==='empty'||f.op==='not_empty') ? '' : ` <strong>${f.value}</strong>`;
+    const opLabel = f.op==='exact' ? '=' : f.op==='empty' ? 'is empty' : f.op==='not_empty' ? 'has value' : f.op==='in' ? 'in' : '~';
+    const valPart = (f.op==='empty'||f.op==='not_empty') ? '' :
+      f.op==='in' ? ` <strong>${f.value.length} valor${f.value.length===1?'':'es'}</strong>` :
+      ` <strong>${f.value}</strong>`;
     return `<span class="filter-chip">${f.field} <em>${opLabel}</em>${valPart}<button data-fi="${i}">×</button></span>`;
   }
   ).join('');
@@ -645,6 +650,7 @@ function renderContacts() {
               </optgroup>` : ''}
             </select>
             <input class="filter-input" id="filter-value" placeholder="value..." style="flex:1.5">
+            <button class="btn btn-ghost" id="filter-values-toggle" type="button" title="Elegir de la lista de valores existentes" style="padding:6px 10px">☰</button>
           </div>
           <div class="filter-row" style="margin-bottom:10px;flex-wrap:wrap;gap:6px">
             <div class="op-toggle">
@@ -658,6 +664,9 @@ function renderContacts() {
               <label for="op-not-empty">Has value</label>
             </div>
             <button class="btn btn-primary" id="filter-add-btn" style="padding:6px 14px;margin-left:auto">+ Add</button>
+          </div>
+          <div id="filter-values-box" style="${filterValuesField ? '' : 'display:none;'}border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px">
+            ${renderFilterValuesPanelInner()}
           </div>
           ${state.activeFilters.length ? `<div style="border-top:1px solid var(--border);padding-top:8px" class="filter-chips">${filterChips}</div>` : ''}
         </div>
@@ -2546,6 +2555,93 @@ function refreshTagsPanel() {
   if (inner) { inner.innerHTML = renderTagsPanelInner(); bindTagsPanel(); }
 }
 
+// ─── Excel-style "pick from existing values" panel (inside Add Filter) ─────
+function renderFilterValuesPanelInner() {
+  if (!filterValuesField) return '';
+  if (filterValuesRows === null) {
+    return `<div style="color:var(--text2);font-size:12px;padding:4px 0">Cargando valores…</div>`;
+  }
+  const activeIn = state.activeFilters.find(f => f.field === filterValuesField && f.op === 'in');
+  const preselected = new Set(activeIn ? activeIn.value : []);
+  return `
+    <input type="text" id="fv-search" class="filter-input" placeholder="🔍 Buscar valor..." autocomplete="off"
+      style="width:100%;box-sizing:border-box;margin-bottom:8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text);font-size:12px;outline:none">
+    <div style="display:flex;gap:10px;margin-bottom:8px;font-size:12px">
+      <a href="#" id="fv-select-all" style="color:var(--accent-light)">Todos</a>
+      <a href="#" id="fv-clear-all" style="color:var(--accent-light)">Ninguno</a>
+      <span style="color:var(--text2);margin-left:auto">${filterValuesRows.length} valor${filterValuesRows.length===1?'':'es'}</span>
+    </div>
+    <div id="fv-list" style="max-height:220px;overflow-y:auto">
+      ${filterValuesRows.length ? filterValuesRows.map(r => `
+        <label class="ms-item" data-fvval="${String(r.value).toLowerCase().replace(/"/g,'&quot;')}">
+          <input type="checkbox" class="fv-check" value="${String(r.value).replace(/"/g,'&quot;')}" ${preselected.has(r.value)?'checked':''}>
+          <span style="flex:1">${r.value}</span>
+          <span style="color:var(--text2);font-size:11px">${r.count}</span>
+        </label>`).join('') : '<div style="color:var(--text2);font-size:12px;padding:6px 0">Sin valores para este campo con los filtros actuales</div>'}
+    </div>
+    <div id="fv-no-results" style="display:none;color:var(--text2);font-size:12px;padding:6px 4px">Sin coincidencias</div>
+    <div style="display:flex;gap:8px;padding-top:10px">
+      <button class="btn btn-primary" id="fv-apply" type="button" style="padding:6px 16px;font-size:12px;margin-left:auto">Aplicar</button>
+    </div>`;
+}
+
+async function fetchColumnValues(field) {
+  const params = contactsQueryParams();
+  params.delete('sort_by'); params.delete('sort_dir');
+  const filters = (state.activeFilters || []).filter(f => f.field !== field);
+  if (filters.length) params.set('filters', JSON.stringify(filters)); else params.delete('filters');
+  params.set('field', field);
+  const data = await apiFetch('/api/contacts/column-values?' + params.toString());
+  return Array.isArray(data) ? data : [];
+}
+
+function refreshFilterValuesBox() {
+  const box = document.getElementById('filter-values-box');
+  if (!box) return;
+  if (filterValuesField) {
+    box.style.display = '';
+    box.innerHTML = renderFilterValuesPanelInner();
+    bindFilterValuesBox();
+  } else {
+    box.style.display = 'none';
+    box.innerHTML = '';
+  }
+}
+
+function bindFilterValuesBox() {
+  document.getElementById('fv-search')?.addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    let any = false;
+    document.querySelectorAll('#fv-list .ms-item').forEach(it => {
+      const match = !q || (it.dataset.fvval || '').includes(q);
+      it.style.display = match ? '' : 'none';
+      if (match) any = true;
+    });
+    const nr = document.getElementById('fv-no-results');
+    if (nr) nr.style.display = any ? 'none' : '';
+  });
+  document.getElementById('fv-select-all')?.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('#fv-list .ms-item').forEach(it => {
+      if (it.style.display === 'none') return; // respect the search filter
+      const cb = it.querySelector('.fv-check');
+      if (cb) cb.checked = true;
+    });
+  });
+  document.getElementById('fv-clear-all')?.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('.fv-check').forEach(cb => cb.checked = false);
+  });
+  document.getElementById('fv-apply')?.addEventListener('click', () => {
+    const values = [...document.querySelectorAll('.fv-check:checked')].map(cb => cb.value);
+    const field = filterValuesField;
+    state.activeFilters = state.activeFilters.filter(f => f.field !== field);
+    if (values.length) state.activeFilters.push({ field, op: 'in', value: values });
+    filterValuesField = null; filterValuesRows = null;
+    state.page = 1; loadContacts();
+  });
+}
+
 function bindContactsEvents() {
   let t;
   document.getElementById('search-input')?.addEventListener('input', e => {
@@ -2698,6 +2794,29 @@ function bindContactsEvents() {
       state.page = 1; loadContacts();
     });
   });
+  // Excel-style "pick from existing values" panel
+  document.getElementById('filter-field')?.addEventListener('change', () => {
+    if (filterValuesField) { filterValuesField = null; filterValuesRows = null; refreshFilterValuesBox(); }
+  });
+  document.getElementById('filter-values-toggle')?.addEventListener('click', async e => {
+    e.stopPropagation();
+    const field = document.getElementById('filter-field')?.value;
+    if (!field) return;
+    if (filterValuesField === field) {
+      filterValuesField = null; filterValuesRows = null;
+      refreshFilterValuesBox();
+      return;
+    }
+    filterValuesField = field;
+    filterValuesRows = null;
+    refreshFilterValuesBox();
+    const rows = await fetchColumnValues(field);
+    if (filterValuesField === field) {
+      filterValuesRows = rows;
+      refreshFilterValuesBox();
+    }
+  });
+  if (filterValuesField) bindFilterValuesBox();
 
   // Columns panel
   document.getElementById('columns-btn')?.addEventListener('click', e => {
