@@ -180,7 +180,7 @@ const SORTABLE_COLS = {
   'tags': '(SELECT COUNT(*) FROM contact_tags ct2 WHERE ct2.contact_email = c.email)',
 };
 
-const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name_cleaned','personalization_status','listkit_id','industry','city','state','country','source','job_title','department','phone']);
+const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name','last_name','first_name_cleaned','personalization_status','listkit_id','industry','city','state','country','source','job_title','department','phone']);
 
 // Builds a parameterized WHERE clause shared by /api/contacts and /api/contacts/column-values.
 // Pass excludeField to skip any active filter on that field (used so the Excel-style value
