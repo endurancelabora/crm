@@ -1631,6 +1631,46 @@ app.post('/api/admin/rebuild-personalization-status', auth, async (req, res) => 
   }
 });
 
+// Permanently remove one or more custom_fields keys from every contact.
+// The removed key/value pairs are copied into custom_fields_backup first.
+// Body: { keys: string[], dryRun?: true }
+app.post('/api/admin/delete-custom-fields', auth, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const keys = Array.isArray(req.body.keys) ? req.body.keys.filter(k => typeof k === 'string' && k) : [];
+    if (!keys.length) return res.status(400).json({ error: 'keys[] required' });
+    const dryRun = req.body.dryRun === true;
+
+    const perKey = await client.query(
+      `SELECT k AS key, COUNT(*)::int AS n
+         FROM contacts, unnest($1::text[]) k
+        WHERE custom_fields ? k
+        GROUP BY k ORDER BY k`, [keys]);
+    if (dryRun) return res.json({ ok: true, dryRun: true, perKey: perKey.rows });
+
+    await client.query('BEGIN');
+    await client.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS custom_fields_backup JSONB DEFAULT '{}'::jsonb`);
+    await client.query(`
+      UPDATE contacts
+      SET custom_fields_backup = COALESCE(custom_fields_backup, '{}'::jsonb) || COALESCE(
+            (SELECT jsonb_object_agg(k, custom_fields->k)
+               FROM unnest($1::text[]) k
+              WHERE custom_fields ? k), '{}'::jsonb)
+      WHERE custom_fields ?| $1::text[]`, [keys]);
+    const upd = await client.query(`
+      UPDATE contacts
+      SET custom_fields = custom_fields - $1::text[], updated_at = NOW()
+      WHERE custom_fields ?| $1::text[]`, [keys]);
+    await client.query('COMMIT');
+    res.json({ ok: true, contactsUpdated: upd.rowCount, perKey: perKey.rows });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ─── Catch-all frontend ────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/index.html')));
 
