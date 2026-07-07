@@ -1602,6 +1602,35 @@ app.post('/api/admin/clear-company-cleaned', auth, async (req, res) => {
   }
 });
 
+// Rebuild the generated personalization_status column so it depends on `company`
+// instead of `company_cleaned`. Generated-column expressions can't be altered in
+// place, so the column is dropped and recreated (no data loss — it's derived).
+app.post('/api/admin/rebuild-personalization-status', auth, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`ALTER TABLE contacts DROP COLUMN IF EXISTS personalization_status`);
+    await client.query(`
+      ALTER TABLE contacts ADD COLUMN personalization_status TEXT GENERATED ALWAYS AS (
+        CASE WHEN first_name_cleaned IS NOT NULL AND first_name_cleaned <> ''
+                  AND company IS NOT NULL AND company <> ''
+             THEN 'Ready' ELSE 'Generic' END
+      ) STORED
+    `);
+    await client.query('COMMIT');
+    const dist = await client.query(`
+      SELECT personalization_status AS status, COUNT(*)::int AS n
+      FROM contacts GROUP BY personalization_status
+    `);
+    res.json({ ok: true, distribution: dist.rows });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ─── Catch-all frontend ────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/index.html')));
 

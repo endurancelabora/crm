@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS contacts (
   listkit_id      VARCHAR(100),
   personalization_status TEXT GENERATED ALWAYS AS (
     CASE WHEN first_name_cleaned IS NOT NULL AND first_name_cleaned <> ''
-              AND company_cleaned IS NOT NULL AND company_cleaned <> ''
+              AND company IS NOT NULL AND company <> ''
          THEN 'Ready' ELSE 'Generic' END
   ) STORED,
   phone           VARCHAR(100),
