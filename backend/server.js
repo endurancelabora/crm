@@ -1568,6 +1568,40 @@ app.post('/api/admin/promote-company-cleaned', auth, async (req, res) => {
   }
 });
 
+// Clear every company_cleaned value (set to NULL). The previous value is saved into
+// company_cleaned_backup (first run only) so it can be restored.
+// Body: { dryRun: true } returns the count without changing anything.
+app.post('/api/admin/clear-company-cleaned', auth, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const dryRun = req.body && req.body.dryRun === true;
+    const count = await client.query(`
+      SELECT COUNT(*)::int AS n FROM contacts
+      WHERE company_cleaned IS NOT NULL AND company_cleaned != ''
+    `);
+    if (dryRun) return res.json({ ok: true, dryRun: true, wouldClear: count.rows[0].n });
+
+    await client.query('BEGIN');
+    await client.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS company_cleaned_backup VARCHAR(255)`);
+    await client.query(`
+      UPDATE contacts SET company_cleaned_backup = company_cleaned
+      WHERE company_cleaned_backup IS NULL
+        AND company_cleaned IS NOT NULL AND company_cleaned != ''
+    `);
+    const upd = await client.query(`
+      UPDATE contacts SET company_cleaned = NULL, updated_at = NOW()
+      WHERE company_cleaned IS NOT NULL AND company_cleaned != ''
+    `);
+    await client.query('COMMIT');
+    res.json({ ok: true, cleared: upd.rowCount });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ─── Catch-all frontend ────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/index.html')));
 
