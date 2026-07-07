@@ -49,11 +49,15 @@ Tiempo estimado: 20-30 minutos
 3. Agrega estas variables una por una:
 
 ```
-DATABASE_URL    = (el valor que copiaste en el paso 3)
-API_KEY         = (inventa una clave segura, ej: MiCRM2025$Labora)
-SMARTLEAD_SECRET = (tu secret key de Smartlead — opcional por ahora)
-PORT            = 3000
+DATABASE_URL     = (el valor que copiaste en el paso 3)
+API_KEY          = (inventa una clave segura, ej: MiCRM2025$Labora)
+SMARTLEAD_SECRET = (inventa un token secreto, ej: sl_9f3k2x8) 
+PORT             = 3000
 ```
+
+> `SMARTLEAD_SECRET` protege tu webhook: solo se aceptarán respuestas que
+> incluyan este token en la URL. Si lo dejas vacío, el webhook queda abierto
+> a cualquiera que conozca la URL (no recomendado).
 
 4. Haz clic en "Deploy" para aplicar los cambios
 
@@ -79,42 +83,40 @@ PORT            = 3000
 
 ---
 
-## PASO 7 — Configurar el webhook en n8n
+## PASO 7 — Configurar el webhook en Smartlead (conexión directa, recomendado)
 
-1. Abre tu n8n cloud
-2. Crea un nuevo workflow
-3. Haz clic en "Import from JSON"
-4. Pega el contenido del archivo `n8n/workflow.json`
-5. En el nodo "Enviar a CRM", cambia la URL por:
-   `https://TU-URL-DE-RAILWAY/webhook/smartlead`
-6. Activa el workflow (toggle arriba a la derecha)
-7. Copia la URL del webhook de n8n (la verás en el nodo "Webhook Smartlead")
+El CRM entiende el formato nativo de Smartlead, así que Smartlead puede enviar
+directo sin intermediarios.
 
----
-
-## PASO 8 — Configurar el webhook en Smartlead
-
-1. En Smartlead, ve a Settings → Webhooks
-2. Haz clic en "Add Webhook"
-3. En la URL, pega la URL de tu webhook de n8n
-4. Selecciona los eventos que quieres capturar:
+1. Arma la URL de tu webhook con el token del PASO 4:
+   `https://TU-URL-DE-RAILWAY/webhook/smartlead?token=TU_SMARTLEAD_SECRET`
+2. En Smartlead, ve a Settings → Webhooks
+3. Haz clic en "Add Webhook"
+4. En la URL, pega la URL del punto 1
+5. Selecciona los eventos que quieres capturar:
    - ✅ LEAD_CATEGORY_UPDATED (el más importante)
    - ✅ EMAIL_REPLY
    - ✅ EMAIL_BOUNCE
    - ✅ LEAD_UNSUBSCRIBED
    - ✅ EMAIL_SENT
    - ✅ EMAIL_OPEN
-5. Guarda
+6. Guarda
+
+> **Alternativa con n8n** (solo si ya usas n8n para otras cosas): importa
+> `n8n/workflow.json`, pon en el nodo "Enviar a CRM" la URL del punto 1, activa
+> el workflow y registra en Smartlead la URL del webhook de n8n en vez de la del CRM.
 
 ---
 
-## PASO 9 — Probar que todo funciona
+## PASO 8 — Probar que todo funciona
 
 1. Abre la URL de tu CRM en el navegador
 2. Ingresa la API_KEY que configuraste en Railway
 3. Deberías ver el CRM con las estadísticas en cero (normal, es nuevo)
 4. Para probar, ve a Smartlead → cambia la categoría de un lead a "Interested"
-5. En unos segundos debería aparecer en tu CRM
+   (o responde a un correo de una campaña)
+5. En unos segundos la respuesta/categoría debería aparecer en tu CRM
+   (en Campañas → 💬 Ver respuestas)
 
 ---
 

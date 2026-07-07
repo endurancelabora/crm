@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 const { Pool } = require('pg');
 
 const app = express();
@@ -88,7 +89,28 @@ function stripHtml(html) {
 // ═══════════════════════════════════════════════════════════
 // WEBHOOK SMARTLEAD
 // ═══════════════════════════════════════════════════════════
+// Timing-safe compare that never throws on length mismatch.
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a || ''));
+  const bb = Buffer.from(String(b || ''));
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
+// Shared-secret gate for the webhook. When SMARTLEAD_SECRET is set, the request
+// must carry the same secret — via ?token=/?secret= query param or the
+// x-webhook-secret header (put the token in the webhook URL you register in
+// Smartlead). When the env var is unset, the webhook stays open (back-compat).
+function webhookAuthorized(req) {
+  const expected = process.env.SMARTLEAD_SECRET;
+  if (!expected) return true;
+  const provided = req.query.token || req.query.secret || req.headers['x-webhook-secret'];
+  return safeEqual(provided, expected);
+}
+
 app.post('/webhook/smartlead', async (req, res) => {
+  if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
+
   const payload = req.body;
   const eventType = payload.event_type;
 
