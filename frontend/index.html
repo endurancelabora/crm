@@ -1030,10 +1030,10 @@ function renderDrawer() {
   const edit = state.drawerEditing;
   const c = d?.contact || {};
 
-  function field(label, key, full = false) {
+  function field(label, key, full = false, readOnly = false) {
     return `<div class="info-item" ${full ? 'style="grid-column:span 2"' : ''}>
       <label>${label}</label>
-      ${edit
+      ${edit && !readOnly
         ? `<input class="edit-input" data-field="${key}" value="${(c[key]||'').replace(/"/g,'&quot;')}">`
         : `<span>${c[key] || '—'}</span>`}
     </div>`;
@@ -1063,7 +1063,10 @@ function renderDrawer() {
         <div class="info-grid">
           ${field('First name', 'first_name')}
           ${field('Last name', 'last_name')}
+          ${field('First name cleaned', 'first_name_cleaned')}
           ${field('Company', 'company')}
+          ${field('Company cleaned', 'company_cleaned')}
+          ${field('Personalization status', 'personalization_status', false, true)}
           ${field('Phone', 'phone')}
           ${field('Job title', 'job_title')}
           ${field('Department', 'department')}
@@ -1073,7 +1076,11 @@ function renderDrawer() {
           ${field('Country', 'country')}
           ${field('Source', 'source')}
           ${field('Lead category', 'lead_category')}
+          ${field('Listkit ID', 'listkit_id')}
+          ${field('ELV result', 'elv_result')}
+          ${field('ELV ESP', 'elv_esp')}
           ${field('LinkedIn', 'linkedin_personal', true)}
+          ${field('LinkedIn company', 'linkedin_company', true)}
           ${field('Company URL', 'company_url', true)}
         </div>
         ${edit ? `

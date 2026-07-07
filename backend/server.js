@@ -496,8 +496,9 @@ app.get('/api/contacts/:email', auth, async (req, res) => {
 app.patch('/api/contacts/:email', auth, async (req, res) => {
   try {
     const { email } = req.params;
-    const EDITABLE = ['first_name','last_name','company','phone','job_title','department',
-      'industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category'];
+    const EDITABLE = ['first_name','last_name','first_name_cleaned','company','company_cleaned',
+      'phone','job_title','department','industry','city','state','country','company_url',
+      'linkedin_personal','linkedin_company','source','lead_category','listkit_id','elv_result','elv_esp'];
     const updates = [];
     const vals = [];
     let p = 1;
