@@ -373,6 +373,7 @@ let state = {
   campSearch: '', campSort: 'campaign_name', campDir: 'ASC',
   cleanupField: '', cleanupRows: [], cleanupLoading: false,
   cleanupSort: 'count', cleanupDir: 'DESC', cleanupSearch: '', cleanupSelected: new Set(),
+  cleanupPage: 1, cleanupLimit: 20,
 };
 
 // Sort icon helper
@@ -3014,6 +3015,12 @@ function sortCleanupRows(rows) {
   });
 }
 
+function filterCleanupRows(rows) {
+  const q = (state.cleanupSearch || '').trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter(r => String(r.value).toLowerCase().includes(q));
+}
+
 function renderCleanupWorkspace() {
   if (!state.cleanupField) {
     return `<div style="color:var(--text2);font-size:13px">Elige una columna arriba para ver sus valores.</div>`;
@@ -3021,13 +3028,21 @@ function renderCleanupWorkspace() {
   if (state.cleanupLoading) {
     return `<div style="color:var(--text2);font-size:13px">Cargando valores…</div>`;
   }
-  const rows = sortCleanupRows(state.cleanupRows || []);
+  const allRows = filterCleanupRows(sortCleanupRows(state.cleanupRows || []));
+  const total = allRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / state.cleanupLimit));
+  if (state.cleanupPage > totalPages) state.cleanupPage = totalPages;
+  if (state.cleanupPage < 1) state.cleanupPage = 1;
+  const start = (state.cleanupPage - 1) * state.cleanupLimit;
+  const rows = allRows.slice(start, start + state.cleanupLimit);
+  const startN = total ? start + 1 : 0;
+  const endN = Math.min(start + state.cleanupLimit, total);
   const sd = col => col === state.cleanupSort ? (state.cleanupDir === 'ASC' ? ' ▲' : ' ▼') : ' ⇅';
   const nSel = state.cleanupSelected.size;
   return `
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
       <input class="filter-input" type="text" id="cleanup-search" placeholder="🔍 Buscar valor..." value="${(state.cleanupSearch||'').replace(/"/g,'&quot;')}" style="width:260px">
-      <span style="color:var(--text2);font-size:12px">${rows.length} valor${rows.length===1?'':'es'} distintos</span>
+      <span style="color:var(--text2);font-size:12px">${total} valor${total===1?'':'es'} distintos</span>
       <span id="cleanup-selected-count" style="color:var(--text2);font-size:12px;margin-left:auto">${nSel} seleccionado${nSel===1?'':'s'}</span>
     </div>
     <div class="table-wrap scrollbox" style="max-height:420px">
@@ -3061,6 +3076,18 @@ function renderCleanupWorkspace() {
           }).join('') : `<tr><td colspan="3" style="color:var(--text2);padding:16px 0;text-align:center">Sin valores para esta columna.</td></tr>`}
         </tbody>
       </table>
+    </div>
+    <div class="pagination">
+      <div class="pagination-info">${total > 0 ? `Mostrando ${startN}–${endN} de ${total.toLocaleString()}` : 'Sin resultados'}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="color:var(--text2);font-size:12px">Mostrar</span>
+        <select class="filter-input" id="cleanup-limit-select" style="width:80px">
+          ${[10,20,50,100,200,500,1000].map(n=>`<option value="${n}" ${state.cleanupLimit===n?'selected':''}>${n}</option>`).join('')}
+        </select>
+      </div>
+      <div class="pagination-btns">
+        ${renderPageBtns(state.cleanupPage, totalPages, 'page-btn cleanup-page-btn')}
+      </div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
       <input class="filter-input" type="text" id="cleanup-merge-value" placeholder="Valor correcto (vacío = borrar el campo)" style="flex:1;max-width:320px">
@@ -3103,13 +3130,6 @@ function updateCleanupSelectedCount() {
   if (btn) btn.disabled = n === 0;
 }
 
-function applyCleanupSearchFilter(q) {
-  const query = (q || '').trim().toLowerCase();
-  document.querySelectorAll('#cleanup-values-body tr[data-cval]').forEach(tr => {
-    tr.style.display = (!query || tr.dataset.cval.includes(query)) ? '' : 'none';
-  });
-}
-
 async function applyCleanupMerge() {
   const field = state.cleanupField;
   const values = [...state.cleanupSelected];
@@ -3139,10 +3159,15 @@ async function applyCleanupMerge() {
 function bindCleanupWorkspaceEvents() {
   const searchInput = document.getElementById('cleanup-search');
   if (searchInput) {
-    applyCleanupSearchFilter(state.cleanupSearch);
+    let searchT;
     searchInput.addEventListener('input', e => {
-      state.cleanupSearch = e.target.value;
-      applyCleanupSearchFilter(state.cleanupSearch);
+      clearTimeout(searchT);
+      const val = e.target.value;
+      searchT = setTimeout(() => {
+        state.cleanupSearch = val;
+        state.cleanupPage = 1;
+        refreshCleanupWorkspace();
+      }, 300);
     });
   }
   document.querySelectorAll('.cleanup-check').forEach(cb => {
@@ -3157,6 +3182,18 @@ function bindCleanupWorkspaceEvents() {
       const col = th.dataset.cleanupSort;
       if (state.cleanupSort === col) state.cleanupDir = state.cleanupDir === 'ASC' ? 'DESC' : 'ASC';
       else { state.cleanupSort = col; state.cleanupDir = col === 'value' ? 'ASC' : 'DESC'; }
+      state.cleanupPage = 1;
+      refreshCleanupWorkspace();
+    });
+  });
+  document.getElementById('cleanup-limit-select')?.addEventListener('change', e => {
+    state.cleanupLimit = parseInt(e.target.value);
+    state.cleanupPage = 1;
+    refreshCleanupWorkspace();
+  });
+  document.querySelectorAll('.cleanup-page-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.cleanupPage = parseInt(btn.dataset.page);
       refreshCleanupWorkspace();
     });
   });
@@ -3220,6 +3257,7 @@ function bindCleanupEvents() {
     state.cleanupRows = [];
     state.cleanupSelected = new Set();
     state.cleanupSearch = '';
+    state.cleanupPage = 1;
     if (!field) { refreshCleanupWorkspace(); return; }
     loadCleanupValues(field);
   });
