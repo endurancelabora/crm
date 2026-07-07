@@ -1042,11 +1042,15 @@ function renderCampaigns() {
           </td>
           <td style="color:var(--text2)">${c.total_contacts}</td>
           <td>${parseInt(c.interested)>0 ? `<span class="badge badge-green">${c.interested} interested</span>` : '<span class="badge badge-gray">0</span>'}</td>
-          <td><button class="btn btn-green btn-export-camp" data-campaign="${c.campaign_name}" data-cat="Interested">⬇ Export interested</button></td>
+          <td><div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-camp-replies" data-camp="${encodeURIComponent(c.campaign_name)}">💬 Ver respuestas</button>
+            <button class="btn btn-green btn-export-camp" data-campaign="${c.campaign_name}" data-cat="Interested">⬇ Export interested</button>
+          </div></td>
         </tr>`).join('') : `<tr><td colspan="4"><div class="empty"><div class="empty-icon">📣</div><div class="empty-text">No campaigns yet</div></div></td></tr>`}
       </tbody>
     </table>
-  </div>`;
+  </div>
+  <div id="camp-replies-root"></div>`;
 }
 
 // ─── Drawer ────────────────────────────────────────────────
@@ -1239,6 +1243,57 @@ function openChatModal(campName, d) {
   document.getElementById('chat-modal-root').innerHTML = html;
   document.getElementById('chat-close-btn').addEventListener('click', () => document.getElementById('chat-modal-root').innerHTML = '');
   document.getElementById('chat-overlay').addEventListener('click', e => { if (e.target.id==='chat-overlay') document.getElementById('chat-modal-root').innerHTML = ''; });
+}
+
+// ─── Campaign replies modal: every reply in a campaign + its label ─────────────
+async function openCampaignReplies(campName) {
+  const root = document.getElementById('camp-replies-root');
+  if (!root) return;
+  const esc = s => (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const close = () => root.innerHTML = '';
+
+  root.innerHTML = `
+  <div class="chat-overlay" id="camp-replies-overlay">
+    <div class="chat-modal" style="width:720px">
+      <div class="chat-modal-header">
+        <div>
+          <div class="chat-modal-title">Respuestas — ${esc(campName)}</div>
+          <div class="chat-modal-sub" id="camp-replies-sub">Cargando…</div>
+        </div>
+        <button class="close-btn" id="camp-replies-close">✕</button>
+      </div>
+      <div class="chat-messages" id="camp-replies-body">
+        <div class="loading" style="text-align:center;padding:24px"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('camp-replies-close').addEventListener('click', close);
+  document.getElementById('camp-replies-overlay').addEventListener('click', e => { if (e.target.id === 'camp-replies-overlay') close(); });
+
+  const data = await apiFetch('/api/campaigns/' + encodeURIComponent(campName) + '/replies');
+  const replies = data?.replies || [];
+  const sub = document.getElementById('camp-replies-sub');
+  if (sub) sub.textContent = `${replies.length} respuesta${replies.length !== 1 ? 's' : ''}`;
+  const body = document.getElementById('camp-replies-body');
+  if (!body) return;
+
+  body.innerHTML = replies.length ? replies.map(r => {
+    const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email;
+    const comp = r.company_cleaned || r.company || '';
+    const tags = (r.tags || []).map(t => renderTagPill(t)).join(' ');
+    return `
+    <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;background:var(--bg3)">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+        <span style="font-weight:600">${esc(name)}</span>
+        ${comp ? `<span style="color:var(--text2);font-size:12px">· ${esc(comp)}</span>` : ''}
+        ${r.lead_category ? badge(r.lead_category) : ''}
+        ${tags}
+        <span style="margin-left:auto;color:var(--text2);font-size:11px">${r.replied_at ? fmtDate(r.replied_at) : ''}</span>
+      </div>
+      <div style="color:var(--text2);font-size:12px;margin-bottom:8px">${esc(r.email)}</div>
+      <div style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.6;color:var(--text);border-left:2px solid var(--border);padding-left:10px">${r.reply_message ? esc(r.reply_message) : '<span style="color:var(--text2)">(respuesta sin texto)</span>'}</div>
+    </div>`;
+  }).join('') : '<div style="color:var(--text2);font-size:13px;text-align:center;padding:24px">No hay respuestas registradas en esta campaña.</div>';
 }
 
 // ─── Import Modal ──────────────────────────────────────────
@@ -1880,6 +1935,10 @@ function bindApp() {
 function bindCampaignEvents() {
   document.querySelectorAll('.btn-export-camp').forEach(btn => {
     btn.addEventListener('click', () => exportData(btn.dataset.campaign, btn.dataset.cat));
+  });
+
+  document.querySelectorAll('.btn-camp-replies').forEach(btn => {
+    btn.addEventListener('click', () => openCampaignReplies(decodeURIComponent(btn.dataset.camp)));
   });
 
   document.querySelectorAll('.camp-rename-btn').forEach(btn => {

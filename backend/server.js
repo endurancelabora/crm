@@ -829,6 +829,49 @@ app.patch('/api/campaigns/:name', auth, async (req, res) => {
   }
 });
 
+// GET /api/campaigns/:name/replies — every reply received in a campaign, each with
+// its label (lead_category) and the contact's tags. Reply text comes from
+// campaign_leads, falling back to the latest campaign_activity reply for that
+// contact+campaign.
+app.get('/api/campaigns/:name/replies', auth, async (req, res) => {
+  try {
+    const name = decodeURIComponent(req.params.name);
+    const result = await pool.query(`
+      SELECT
+        cl.email,
+        cl.lead_category,
+        COALESCE(cl.replied_at, (
+          SELECT MAX(ca.replied_at) FROM campaign_activity ca
+          WHERE ca.email = cl.email AND ca.campaign_name = cl.campaign_name
+            AND ca.reply_message IS NOT NULL AND ca.reply_message <> ''
+        )) AS replied_at,
+        COALESCE(NULLIF(cl.reply_message, ''), (
+          SELECT ca.reply_message FROM campaign_activity ca
+          WHERE ca.email = cl.email AND ca.campaign_name = cl.campaign_name
+            AND ca.reply_message IS NOT NULL AND ca.reply_message <> ''
+          ORDER BY ca.replied_at DESC NULLS LAST LIMIT 1
+        )) AS reply_message,
+        c.first_name, c.last_name, c.company, c.company_cleaned,
+        (SELECT JSON_AGG(JSON_BUILD_OBJECT('name', t.name, 'color', t.color) ORDER BY t.name)
+         FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id
+         WHERE ct.contact_email = cl.email) AS tags
+      FROM campaign_leads cl
+      LEFT JOIN contacts c ON c.email = cl.email
+      WHERE cl.campaign_name = $1
+        AND (
+          (cl.reply_message IS NOT NULL AND cl.reply_message <> '')
+          OR EXISTS (SELECT 1 FROM campaign_activity ca
+                     WHERE ca.email = cl.email AND ca.campaign_name = cl.campaign_name
+                       AND ca.reply_message IS NOT NULL AND ca.reply_message <> '')
+        )
+      ORDER BY replied_at DESC NULLS LAST, cl.email
+    `, [name]);
+    res.json({ campaign: name, replies: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════
 // STATS
 // ═══════════════════════════════════════════════════════════
