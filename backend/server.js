@@ -60,9 +60,15 @@ pool.query(`
   END $$;
 `).catch(e => console.error('listkit_id→source consolidation error:', e.message));
 
-// Drop the retired elv_esp column. Idempotent (no-op once gone).
+// Drop the retired ELV columns (elv_esp, elv_result) and the leftover
+// "ELV Internal Result" custom field. All idempotent (no-op once gone).
 pool.query(`ALTER TABLE contacts DROP COLUMN IF EXISTS elv_esp;`)
   .catch(e => console.error('elv_esp drop error:', e.message));
+pool.query(`ALTER TABLE contacts DROP COLUMN IF EXISTS elv_result;`)
+  .catch(e => console.error('elv_result drop error:', e.message));
+pool.query(`UPDATE contacts SET custom_fields = custom_fields - 'ELV Internal Result'
+            WHERE custom_fields ? 'ELV Internal Result';`)
+  .catch(e => console.error('ELV Internal Result custom-field drop error:', e.message));
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
@@ -194,7 +200,6 @@ const SORTABLE_COLS = {
   'country': 'c.country', 'source': 'c.source',
   'company_url': 'c.company_url', 'linkedin_personal': 'c.linkedin_personal',
   'linkedin_company': 'c.linkedin_company', 'lead_category': 'c.lead_category',
-  'elv_result': 'c.elv_result',
   'last_activity': 'last_activity', 'created_at': 'c.created_at',
   'total_campaigns': 'total_campaigns',
   'personalization_status': 'c.personalization_status',
@@ -203,7 +208,7 @@ const SORTABLE_COLS = {
   'tags': '(SELECT COUNT(*) FROM contact_tags ct2 WHERE ct2.contact_email = c.email)',
 };
 
-const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name','last_name','first_name_cleaned','personalization_status','industry','city','state','country','source','job_title','department','phone','company_url','linkedin_personal','linkedin_company','lead_category','elv_result']);
+const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name','last_name','first_name_cleaned','personalization_status','industry','city','state','country','source','job_title','department','phone','company_url','linkedin_personal','linkedin_company','lead_category']);
 
 // Builds a parameterized WHERE clause shared by /api/contacts and /api/contacts/column-values.
 // Pass excludeField to skip any active filter on that field (used so the Excel-style value
@@ -521,7 +526,7 @@ app.patch('/api/contacts/:email', auth, async (req, res) => {
     const { email } = req.params;
     const EDITABLE = ['first_name','last_name','first_name_cleaned','company','company_cleaned',
       'phone','job_title','department','industry','city','state','country','company_url',
-      'linkedin_personal','linkedin_company','source','lead_category','elv_result'];
+      'linkedin_personal','linkedin_company','source','lead_category'];
     const updates = [];
     const vals = [];
     let p = 1;
@@ -960,7 +965,7 @@ app.post('/api/export', auth, async (req, res) => {
 const CONTACT_FIELDS = new Set([
   'email','first_name','last_name','company','phone','job_title','department',
   'industry','city','state','country','company_url','linkedin_personal',
-  'linkedin_company','source','lead_category','elv_result',
+  'linkedin_company','source','lead_category',
   'first_name_cleaned','company_cleaned'
 ]);
 
@@ -1075,9 +1080,9 @@ app.post('/api/import/contacts', auth, async (req, res) => {
         INSERT INTO contacts (
           email, first_name, last_name, company, phone, job_title, department,
           industry, city, state, country, company_url, linkedin_personal,
-          linkedin_company, source, lead_category, elv_result,
+          linkedin_company, source, lead_category,
           first_name_cleaned, company_cleaned, custom_fields
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
         ON CONFLICT (email) DO UPDATE SET
           first_name        = COALESCE(EXCLUDED.first_name, contacts.first_name),
           last_name         = COALESCE(EXCLUDED.last_name, contacts.last_name),
@@ -1094,7 +1099,6 @@ app.post('/api/import/contacts', auth, async (req, res) => {
           linkedin_company  = COALESCE(EXCLUDED.linkedin_company, contacts.linkedin_company),
           source            = COALESCE(EXCLUDED.source, contacts.source),
           lead_category     = COALESCE(EXCLUDED.lead_category, contacts.lead_category),
-          elv_result        = COALESCE(EXCLUDED.elv_result, contacts.elv_result),
           first_name_cleaned = COALESCE(EXCLUDED.first_name_cleaned, contacts.first_name_cleaned),
           company_cleaned    = COALESCE(EXCLUDED.company_cleaned, contacts.company_cleaned),
           custom_fields     = contacts.custom_fields || EXCLUDED.custom_fields,
@@ -1106,7 +1110,6 @@ app.post('/api/import/contacts', auth, async (req, res) => {
         toNull(row.industry), toNull(row.city), toNull(row.state),
         toNull(row.country), toNull(row.company_url), toNull(row.linkedin_personal),
         toNull(row.linkedin_company), toNull(row.source), toNull(row.lead_category),
-        toNull(row.elv_result),
         toNull(row.first_name_cleaned), toNull(row.company_cleaned), JSON.stringify(custom)
       ]);
       imported++;

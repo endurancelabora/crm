@@ -305,7 +305,6 @@ const COLUMNS = [
   { key: 'linkedin_company',  label: 'Company LinkedIn' },
   { key: 'source',         label: 'Source' },
   { key: 'lead_category',  label: 'Lead Category' },
-  { key: 'elv_result',     label: 'ELV Result' },
   { key: 'total_campaigns',label: 'Campaigns' },
   { key: 'category',       label: 'Category' },
   { key: 'tags',           label: 'Tags' },
@@ -353,7 +352,6 @@ const FILTER_FIELDS = [
   { key: 'linkedin_personal', label: 'LinkedIn' },
   { key: 'linkedin_company',  label: 'Company LinkedIn' },
   { key: 'lead_category', label: 'Lead Category' },
-  { key: 'elv_result', label: 'ELV Result' },
   { key: 'tag',        label: 'Tag' },
 ];
 
@@ -431,7 +429,6 @@ const COLUMN_MAP = {
   'linkedin empresa': 'linkedin_company',
   'fuente': 'source', 'source': 'source',
   'lead category': 'lead_category', 'category': 'lead_category', 'lead_category': 'lead_category',
-  'elv result': 'elv_result', 'elv_result': 'elv_result',
   // Campaign leads
   'campaña': 'campaign_name', 'campaign': 'campaign_name', 'campaign_name': 'campaign_name',
   'status': 'status', 'esp type': 'esp_type', 'esp_type': 'esp_type',
@@ -452,7 +449,7 @@ const COLUMN_MAP = {
 };
 
 const KNOWN_FIELDS = {
-  contacts: new Set(['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result']),
+  contacts: new Set(['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category']),
   'campaign-leads': new Set(['email','campaign_name','campaign_id','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal']),
   'campaign-activity': new Set(['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed']),
 };
@@ -787,7 +784,7 @@ function renderContacts() {
       <thead><tr>
         <th style="width:36px"><input type="checkbox" class="row-check" id="select-all" ${allSelected?'checked':''}></th>
         ${state.colOrder.filter(col => vc.has(col.key)).map(col => {
-          const sortMap = {contact:'first_name',first_name:'first_name',last_name:'last_name',first_name_cleaned:'first_name_cleaned',company:'company',company_cleaned:'company_cleaned',company_url:'company_url',personalization_status:'personalization_status',job_title:'job_title',department:'department',industry:'industry',city:'city',state:'state',country:'country',phone:'phone',linkedin_personal:'linkedin_personal',linkedin_company:'linkedin_company',source:'source',lead_category:'lead_category',elv_result:'elv_result',total_campaigns:'total_campaigns',category:'category',tags:'tags',last_activity:'last_activity',email_col:'email',flags:'flags'};
+          const sortMap = {contact:'first_name',first_name:'first_name',last_name:'last_name',first_name_cleaned:'first_name_cleaned',company:'company',company_cleaned:'company_cleaned',company_url:'company_url',personalization_status:'personalization_status',job_title:'job_title',department:'department',industry:'industry',city:'city',state:'state',country:'country',phone:'phone',linkedin_personal:'linkedin_personal',linkedin_company:'linkedin_company',source:'source',lead_category:'lead_category',total_campaigns:'total_campaigns',category:'category',tags:'tags',last_activity:'last_activity',email_col:'email',flags:'flags'};
           const sk = sortMap[col.key];
           return sk ? `<th class="sortable" data-sort="${sk}">${col.label} ${sortIcon(sk)}</th>`
                     : `<th>${col.label}</th>`;
@@ -821,7 +818,6 @@ function renderContacts() {
               case 'linkedin_company':  return `<td style="color:var(--text2);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fmtLink(c.linkedin_company)}</td>`;
               case 'source':         return `<td style="color:var(--text2)">${c.source||'—'}</td>`;
               case 'lead_category':  return `<td style="color:var(--text2)">${c.lead_category||'—'}</td>`;
-              case 'elv_result':     return `<td style="color:var(--text2)">${c.elv_result||'—'}</td>`;
               case 'total_campaigns':return `<td style="color:var(--text2)">${c.total_campaigns||0}</td>`;
               case 'category':       return `<td>${c.categories ? c.categories.split(', ').map(badge).join(' ') : '—'}</td>`;
               case 'tags':           return `<td>${tags.length ? tags.map(t=>renderTagPill(t)).join(' ') : '—'}</td>`;
@@ -1106,7 +1102,6 @@ function renderDrawer() {
           ${field('Country', 'country')}
           ${field('Source', 'source')}
           ${field('Lead category', 'lead_category')}
-          ${field('ELV result', 'elv_result')}
           ${field('LinkedIn', 'linkedin_personal', true)}
           ${field('LinkedIn company', 'linkedin_company', true)}
           ${field('Company URL', 'company_url', true)}
@@ -1427,7 +1422,7 @@ function loadFile(file) {
 }
 
 const ALL_FIELDS = {
-  contacts: ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result'],
+  contacts: ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category'],
   'campaign-leads': ['email','campaign_name','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal'],
   'campaign-activity': ['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed'],
 };
