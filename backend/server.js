@@ -1530,6 +1530,43 @@ app.post('/api/admin/apply-company-merge', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Promote company_cleaned to be the official company value.
+// The previous company is saved into company_backup (first run only) so it can be restored.
+// Body: { dryRun: true } returns the count without changing anything.
+app.post('/api/admin/promote-company-cleaned', auth, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const dryRun = req.body && req.body.dryRun === true;
+    const count = await client.query(`
+      SELECT COUNT(*)::int AS n FROM contacts
+      WHERE company_cleaned IS NOT NULL AND company_cleaned != ''
+        AND company IS DISTINCT FROM company_cleaned
+    `);
+    if (dryRun) return res.json({ ok: true, dryRun: true, wouldUpdate: count.rows[0].n });
+
+    await client.query('BEGIN');
+    await client.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS company_backup VARCHAR(255)`);
+    await client.query(`
+      UPDATE contacts SET company_backup = company
+      WHERE company_backup IS NULL AND company IS NOT NULL
+        AND company_cleaned IS NOT NULL AND company_cleaned != ''
+        AND company IS DISTINCT FROM company_cleaned
+    `);
+    const upd = await client.query(`
+      UPDATE contacts SET company = company_cleaned, updated_at = NOW()
+      WHERE company_cleaned IS NOT NULL AND company_cleaned != ''
+        AND company IS DISTINCT FROM company_cleaned
+    `);
+    await client.query('COMMIT');
+    res.json({ ok: true, updated: upd.rowCount });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ─── Catch-all frontend ────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/index.html')));
 
