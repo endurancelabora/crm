@@ -373,7 +373,7 @@ let state = {
   campSearch: '', campSort: 'campaign_name', campDir: 'ASC',
   cleanupField: '', cleanupRows: [], cleanupLoading: false,
   cleanupSort: 'count', cleanupDir: 'DESC', cleanupSearch: '', cleanupSelected: new Set(),
-  cleanupPage: 1, cleanupLimit: 20,
+  cleanupPage: 1, cleanupLimit: 20, cleanupTotal: 0,
 };
 
 // Sort icon helper
@@ -2596,8 +2596,9 @@ async function fetchColumnValues(field) {
   const filters = (state.activeFilters || []).filter(f => f.field !== field);
   if (filters.length) params.set('filters', JSON.stringify(filters)); else params.delete('filters');
   params.set('field', field);
+  params.set('limit', '1000');
   const data = await apiFetch('/api/contacts/column-values?' + params.toString());
-  return Array.isArray(data) ? data : [];
+  return data?.rows || [];
 }
 
 function refreshFilterValuesBox() {
@@ -3007,20 +3008,6 @@ function renderCleanup() {
   <div id="cleanup-workspace">${renderCleanupWorkspace()}</div>`;
 }
 
-function sortCleanupRows(rows) {
-  const dir = state.cleanupDir === 'ASC' ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    if (state.cleanupSort === 'value') return String(a.value).localeCompare(String(b.value), 'es') * dir;
-    return (a.count - b.count) * dir;
-  });
-}
-
-function filterCleanupRows(rows) {
-  const q = (state.cleanupSearch || '').trim().toLowerCase();
-  if (!q) return rows;
-  return rows.filter(r => String(r.value).toLowerCase().includes(q));
-}
-
 function renderCleanupWorkspace() {
   if (!state.cleanupField) {
     return `<div style="color:var(--text2);font-size:13px">Elige una columna arriba para ver sus valores.</div>`;
@@ -3028,15 +3015,12 @@ function renderCleanupWorkspace() {
   if (state.cleanupLoading) {
     return `<div style="color:var(--text2);font-size:13px">Cargando valores…</div>`;
   }
-  const allRows = filterCleanupRows(sortCleanupRows(state.cleanupRows || []));
-  const total = allRows.length;
+  const rows = state.cleanupRows || [];
+  const total = state.cleanupTotal || 0;
   const totalPages = Math.max(1, Math.ceil(total / state.cleanupLimit));
-  if (state.cleanupPage > totalPages) state.cleanupPage = totalPages;
-  if (state.cleanupPage < 1) state.cleanupPage = 1;
   const start = (state.cleanupPage - 1) * state.cleanupLimit;
-  const rows = allRows.slice(start, start + state.cleanupLimit);
   const startN = total ? start + 1 : 0;
-  const endN = Math.min(start + state.cleanupLimit, total);
+  const endN = Math.min(start + rows.length, total);
   const sd = col => col === state.cleanupSort ? (state.cleanupDir === 'ASC' ? ' ▲' : ' ▼') : ' ⇅';
   const nSel = state.cleanupSelected.size;
   return `
@@ -3098,12 +3082,29 @@ function renderCleanupWorkspace() {
 
 async function loadCleanupValues(field, preserveScroll) {
   const scrollTop = preserveScroll ? document.querySelector('#cleanup-workspace .table-wrap')?.scrollTop : null;
+  const searchHadFocus = document.activeElement?.id === 'cleanup-search';
   state.cleanupLoading = true;
   refreshCleanupWorkspace();
-  const data = await apiFetch('/api/contacts/column-values?' + new URLSearchParams({ field }));
-  state.cleanupRows = Array.isArray(data) ? data : [];
+  const params = new URLSearchParams({
+    field,
+    sort_by: state.cleanupSort, sort_dir: state.cleanupDir,
+    page: state.cleanupPage, limit: state.cleanupLimit,
+  });
+  if (state.cleanupSearch) params.set('value_search', state.cleanupSearch);
+  const data = await apiFetch('/api/contacts/column-values?' + params);
+  state.cleanupRows = data?.rows || [];
+  state.cleanupTotal = data?.total || 0;
   state.cleanupLoading = false;
+  const totalPages = Math.max(1, Math.ceil(state.cleanupTotal / state.cleanupLimit));
+  if (state.cleanupPage > totalPages) {
+    state.cleanupPage = totalPages;
+    return loadCleanupValues(field, preserveScroll);
+  }
   refreshCleanupWorkspace();
+  if (searchHadFocus) {
+    const inp = document.getElementById('cleanup-search');
+    if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+  }
   if (scrollTop) {
     const scrollEl = document.querySelector('#cleanup-workspace .table-wrap');
     if (scrollEl) scrollEl.scrollTop = scrollTop;
@@ -3166,7 +3167,7 @@ function bindCleanupWorkspaceEvents() {
       searchT = setTimeout(() => {
         state.cleanupSearch = val;
         state.cleanupPage = 1;
-        refreshCleanupWorkspace();
+        loadCleanupValues(state.cleanupField);
       }, 300);
     });
   }
@@ -3183,18 +3184,18 @@ function bindCleanupWorkspaceEvents() {
       if (state.cleanupSort === col) state.cleanupDir = state.cleanupDir === 'ASC' ? 'DESC' : 'ASC';
       else { state.cleanupSort = col; state.cleanupDir = col === 'value' ? 'ASC' : 'DESC'; }
       state.cleanupPage = 1;
-      refreshCleanupWorkspace();
+      loadCleanupValues(state.cleanupField);
     });
   });
   document.getElementById('cleanup-limit-select')?.addEventListener('change', e => {
     state.cleanupLimit = parseInt(e.target.value);
     state.cleanupPage = 1;
-    refreshCleanupWorkspace();
+    loadCleanupValues(state.cleanupField);
   });
   document.querySelectorAll('.cleanup-page-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       state.cleanupPage = parseInt(btn.dataset.page);
-      refreshCleanupWorkspace();
+      loadCleanupValues(state.cleanupField);
     });
   });
   document.getElementById('cleanup-merge-btn')?.addEventListener('click', applyCleanupMerge);

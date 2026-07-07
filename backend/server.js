@@ -389,17 +389,30 @@ app.get('/api/contacts/column-values', auth, async (req, res) => {
 
     const { where, params } = buildContactWhere(req.query, { excludeField: field });
     const nullCheck = `${col} IS NOT NULL AND ${col} != ''`;
-    const fullWhere = where ? `${where} AND ${nullCheck}` : `WHERE ${nullCheck}`;
+    let fullWhere = where ? `${where} AND ${nullCheck}` : `WHERE ${nullCheck}`;
 
+    // value_search filters the distinct values themselves (not the contacts).
+    if (req.query.value_search) {
+      params.push(`%${req.query.value_search}%`);
+      fullWhere += ` AND ${col} ILIKE $${params.length}`;
+    }
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 1000);
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const dir = String(req.query.sort_dir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const orderBy = req.query.sort_by === 'value' ? `value ${dir}` : `count ${dir}, value ASC`;
+
+    const totalResult = await pool.query(
+      `SELECT COUNT(DISTINCT ${col})::int AS total FROM contacts c ${fullWhere}`, params);
     const result = await pool.query(`
       SELECT ${col} AS value, COUNT(*)::int AS count
       FROM contacts c
       ${fullWhere}
       GROUP BY ${col}
-      ORDER BY count DESC, value ASC
-      LIMIT 1000
+      ORDER BY ${orderBy}
+      LIMIT ${limit} OFFSET ${(page - 1) * limit}
     `, params);
-    res.json(result.rows);
+    res.json({ rows: result.rows, total: totalResult.rows[0].total });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
