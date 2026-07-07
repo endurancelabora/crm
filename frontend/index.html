@@ -468,8 +468,15 @@ async function apiFetch(path, opts = {}) {
 
 function badge(cat) {
   if (!cat) return '';
-  const map = { 'Interested': 'badge-green', 'Meeting Booked': 'badge-green', 'Replied': 'badge-blue', 'Respondió': 'badge-blue', 'Out of Office': 'badge-amber', 'Not Interested': 'badge-red' };
-  const cls = Object.entries(map).find(([k]) => cat.includes(k))?.[1] || 'badge-gray';
+  // Keys are matched case-insensitively (data has mixed casing, e.g. "Out Of Office").
+  const map = {
+    'interested': 'badge-green', 'meeting booked': 'badge-green', 'meeting request': 'badge-green',
+    'replied': 'badge-blue', 'respondió': 'badge-blue', 'information request': 'badge-blue',
+    'out of office': 'badge-amber', 'bounce': 'badge-amber',
+    'not interested': 'badge-red', 'wrong person': 'badge-red', 'do not contact': 'badge-red',
+  };
+  const lc = cat.toLowerCase();
+  const cls = Object.entries(map).find(([k]) => lc.includes(k))?.[1] || 'badge-gray';
   return `<span class="badge ${cls}">${cat}</span>`;
 }
 
