@@ -294,7 +294,6 @@ const COLUMNS = [
   { key: 'company_cleaned', label: 'Company Cleaned' },
   { key: 'company_url',    label: 'Company URL' },
   { key: 'personalization_status', label: 'Status' },
-  { key: 'listkit_id',     label: 'Listkit ID' },
   { key: 'job_title',      label: 'Job Title' },
   { key: 'department',     label: 'Department' },
   { key: 'industry',       label: 'Industry' },
@@ -343,7 +342,6 @@ const FILTER_FIELDS = [
   { key: 'last_name',  label: 'Last Name' },
   { key: 'first_name_cleaned', label: 'First Name Cleaned' },
   { key: 'personalization_status', label: 'Status (Ready/Generic)' },
-  { key: 'listkit_id', label: 'Listkit ID' },
   { key: 'industry',   label: 'Industry' },
   { key: 'city',       label: 'City' },
   { key: 'state',      label: 'State' },
@@ -416,7 +414,7 @@ const COLUMN_MAP = {
   'apellido': 'last_name', 'last name': 'last_name', 'last_name': 'last_name',
   'empresa': 'company', 'company name': 'company', 'company': 'company',
   'company_cleaned': 'company_cleaned',
-  'listkit_id': 'listkit_id', 'listkit id': 'listkit_id', 'id de la base': 'listkit_id', 'base_id': 'listkit_id',
+  'listkit_id': 'source', 'listkit id': 'source', 'id de la base': 'source', 'base_id': 'source',
   'telefono': 'phone', 'phone number': 'phone', 'phone': 'phone',
   'puesto': 'job_title', 'job_title': 'job_title', 'job title': 'job_title', 'job': 'job_title',
   'departamento': 'department', 'department': 'department',
@@ -451,7 +449,7 @@ const COLUMN_MAP = {
 };
 
 const KNOWN_FIELDS = {
-  contacts: new Set(['email','first_name','first_name_cleaned','last_name','company','company_cleaned','listkit_id','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp']),
+  contacts: new Set(['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp']),
   'campaign-leads': new Set(['email','campaign_name','campaign_id','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal']),
   'campaign-activity': new Set(['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed']),
 };
@@ -786,7 +784,7 @@ function renderContacts() {
       <thead><tr>
         <th style="width:36px"><input type="checkbox" class="row-check" id="select-all" ${allSelected?'checked':''}></th>
         ${state.colOrder.filter(col => vc.has(col.key)).map(col => {
-          const sortMap = {contact:'first_name',first_name:'first_name',last_name:'last_name',first_name_cleaned:'first_name_cleaned',company:'company',company_cleaned:'company_cleaned',company_url:'company_url',personalization_status:'personalization_status',listkit_id:'listkit_id',job_title:'job_title',department:'department',industry:'industry',city:'city',state:'state',country:'country',phone:'phone',linkedin_personal:'linkedin_personal',linkedin_company:'linkedin_company',source:'source',lead_category:'lead_category',elv_result:'elv_result',elv_esp:'elv_esp',total_campaigns:'total_campaigns',category:'category',tags:'tags',last_activity:'last_activity',email_col:'email',flags:'flags'};
+          const sortMap = {contact:'first_name',first_name:'first_name',last_name:'last_name',first_name_cleaned:'first_name_cleaned',company:'company',company_cleaned:'company_cleaned',company_url:'company_url',personalization_status:'personalization_status',job_title:'job_title',department:'department',industry:'industry',city:'city',state:'state',country:'country',phone:'phone',linkedin_personal:'linkedin_personal',linkedin_company:'linkedin_company',source:'source',lead_category:'lead_category',elv_result:'elv_result',elv_esp:'elv_esp',total_campaigns:'total_campaigns',category:'category',tags:'tags',last_activity:'last_activity',email_col:'email',flags:'flags'};
           const sk = sortMap[col.key];
           return sk ? `<th class="sortable" data-sort="${sk}">${col.label} ${sortIcon(sk)}</th>`
                     : `<th>${col.label}</th>`;
@@ -809,7 +807,6 @@ function renderContacts() {
               case 'company_cleaned': return `<td style="color:var(--text2)">${c.company_cleaned||'—'}</td>`;
               case 'company_url':    return `<td style="color:var(--text2);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fmtLink(c.company_url)}</td>`;
               case 'personalization_status': return `<td>${c.personalization_status === 'Ready' ? '<span class="badge badge-green">Ready</span>' : '<span class="badge badge-gray">Generic</span>'}</td>`;
-              case 'listkit_id':     return `<td style="color:var(--text2)">${c.listkit_id||'—'}</td>`;
               case 'job_title':      return `<td style="color:var(--text2)">${c.job_title||'—'}</td>`;
               case 'department':     return `<td style="color:var(--text2)">${c.department||'—'}</td>`;
               case 'industry':       return `<td style="color:var(--text2)">${c.industry||'—'}</td>`;
@@ -1107,7 +1104,6 @@ function renderDrawer() {
           ${field('Country', 'country')}
           ${field('Source', 'source')}
           ${field('Lead category', 'lead_category')}
-          ${field('Listkit ID', 'listkit_id')}
           ${field('ELV result', 'elv_result')}
           ${field('ELV ESP', 'elv_esp')}
           ${field('LinkedIn', 'linkedin_personal', true)}
@@ -1430,7 +1426,7 @@ function loadFile(file) {
 }
 
 const ALL_FIELDS = {
-  contacts: ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','listkit_id','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp'],
+  contacts: ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp'],
   'campaign-leads': ['email','campaign_name','lead_category','status','esp_type','current_sequence','location','company_city','website','first_name','last_name','company','phone','job_title','department','industry','country','company_url','linkedin_personal'],
   'campaign-activity': ['email','campaign_name','lead_name','sequence_number','sent_at','opened_at','clicked_at','replied_at','reply_message','open_count','click_count','sent_email_body','is_unsubscribed'],
 };
@@ -1543,9 +1539,9 @@ async function runImport() {
 
   const BATCH = 200;
   let imported = 0, errors = 0;
-  const listkitId = (document.getElementById('import-listkit-id')?.value || '').trim();
-  const rows = (listkitId && importState.type === 'contacts')
-    ? importState.mapped.map(r => ({ ...r, listkit_id: listkitId }))
+  const sourceId = (document.getElementById('import-source-id')?.value || '').trim();
+  const rows = (sourceId && importState.type === 'contacts')
+    ? importState.mapped.map(r => ({ ...r, source: r.source || sourceId }))
     : importState.mapped;
 
   const area = document.getElementById('import-preview-area');
@@ -1755,9 +1751,9 @@ function renderImport() {
         </div>
       </div>
       <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <label style="font-size:13px;color:var(--text2)">ID de la base (Listkit):</label>
-        <input type="text" id="import-listkit-id" placeholder="ej. 12345" style="flex:0 0 200px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text);font-size:13px;outline:none">
-        <span style="font-size:11px;color:var(--text2)">Se guarda en todos los contactos de este import (opcional).</span>
+        <label style="font-size:13px;color:var(--text2)">Source (ID de la base):</label>
+        <input type="text" id="import-source-id" placeholder="ej. 12345" style="flex:0 0 200px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text);font-size:13px;outline:none">
+        <span style="font-size:11px;color:var(--text2)">Se guarda en la columna <strong style="color:var(--text)">source</strong> de los contactos que no traigan una (opcional).</span>
       </div>
       <div class="file-drop" id="file-drop" style="margin-top:14px">
         <div class="file-drop-icon">📄</div>

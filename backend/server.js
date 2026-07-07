@@ -30,12 +30,11 @@ pool.query(`
   );
 `).catch(e => console.error('tags table creation error:', e.message));
 
-// Add cleaned-value columns (originals intact), the Listkit base id, and an
-// auto-computed personalization_status. Statements run in order (single query).
+// Add cleaned-value columns (originals intact) and an auto-computed
+// personalization_status. Statements run in order (single query).
 pool.query(`
   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS first_name_cleaned VARCHAR(255);
   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS company_cleaned    VARCHAR(255);
-  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS listkit_id         VARCHAR(100);
   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS personalization_status TEXT
     GENERATED ALWAYS AS (
       CASE WHEN first_name_cleaned IS NOT NULL AND first_name_cleaned <> ''
@@ -43,6 +42,23 @@ pool.query(`
            THEN 'Ready' ELSE 'Generic' END
     ) STORED;
 `).catch(e => console.error('contacts columns migration error:', e.message));
+
+// One-time consolidation: fold the legacy listkit_id column into source
+// (source wins where both exist), then drop listkit_id. Idempotent: once the
+// column is gone the block is a no-op.
+pool.query(`
+  DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'contacts' AND column_name = 'listkit_id') THEN
+      UPDATE contacts
+         SET source = listkit_id
+       WHERE (source IS NULL OR source = '')
+         AND listkit_id IS NOT NULL AND listkit_id <> '';
+      ALTER TABLE contacts DROP COLUMN listkit_id;
+    END IF;
+  END $$;
+`).catch(e => console.error('listkit_id→source consolidation error:', e.message));
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
@@ -177,13 +193,13 @@ const SORTABLE_COLS = {
   'elv_result': 'c.elv_result', 'elv_esp': 'c.elv_esp',
   'last_activity': 'last_activity', 'created_at': 'c.created_at',
   'total_campaigns': 'total_campaigns',
-  'personalization_status': 'c.personalization_status', 'listkit_id': 'c.listkit_id',
+  'personalization_status': 'c.personalization_status',
   'category': 'categories',
   'flags': '(c.no_contact::int + c.email_bounced::int)',
   'tags': '(SELECT COUNT(*) FROM contact_tags ct2 WHERE ct2.contact_email = c.email)',
 };
 
-const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name','last_name','first_name_cleaned','personalization_status','listkit_id','industry','city','state','country','source','job_title','department','phone']);
+const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name','last_name','first_name_cleaned','personalization_status','industry','city','state','country','source','job_title','department','phone']);
 
 // Builds a parameterized WHERE clause shared by /api/contacts and /api/contacts/column-values.
 // Pass excludeField to skip any active filter on that field (used so the Excel-style value
@@ -501,7 +517,7 @@ app.patch('/api/contacts/:email', auth, async (req, res) => {
     const { email } = req.params;
     const EDITABLE = ['first_name','last_name','first_name_cleaned','company','company_cleaned',
       'phone','job_title','department','industry','city','state','country','company_url',
-      'linkedin_personal','linkedin_company','source','lead_category','listkit_id','elv_result','elv_esp'];
+      'linkedin_personal','linkedin_company','source','lead_category','elv_result','elv_esp'];
     const updates = [];
     const vals = [];
     let p = 1;
@@ -941,7 +957,7 @@ const CONTACT_FIELDS = new Set([
   'email','first_name','last_name','company','phone','job_title','department',
   'industry','city','state','country','company_url','linkedin_personal',
   'linkedin_company','source','lead_category','elv_result','elv_esp',
-  'first_name_cleaned','company_cleaned','listkit_id'
+  'first_name_cleaned','company_cleaned'
 ]);
 
 const CAMPAIGN_LEAD_FIELDS = new Set([
@@ -1056,8 +1072,8 @@ app.post('/api/import/contacts', auth, async (req, res) => {
           email, first_name, last_name, company, phone, job_title, department,
           industry, city, state, country, company_url, linkedin_personal,
           linkedin_company, source, lead_category, elv_result, elv_esp,
-          first_name_cleaned, company_cleaned, listkit_id, custom_fields
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+          first_name_cleaned, company_cleaned, custom_fields
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
         ON CONFLICT (email) DO UPDATE SET
           first_name        = COALESCE(EXCLUDED.first_name, contacts.first_name),
           last_name         = COALESCE(EXCLUDED.last_name, contacts.last_name),
@@ -1078,7 +1094,6 @@ app.post('/api/import/contacts', auth, async (req, res) => {
           elv_esp           = COALESCE(EXCLUDED.elv_esp, contacts.elv_esp),
           first_name_cleaned = COALESCE(EXCLUDED.first_name_cleaned, contacts.first_name_cleaned),
           company_cleaned    = COALESCE(EXCLUDED.company_cleaned, contacts.company_cleaned),
-          listkit_id         = COALESCE(EXCLUDED.listkit_id, contacts.listkit_id),
           custom_fields     = contacts.custom_fields || EXCLUDED.custom_fields,
           updated_at        = NOW()
       `, [
@@ -1089,7 +1104,7 @@ app.post('/api/import/contacts', auth, async (req, res) => {
         toNull(row.country), toNull(row.company_url), toNull(row.linkedin_personal),
         toNull(row.linkedin_company), toNull(row.source), toNull(row.lead_category),
         toNull(row.elv_result), toNull(row.elv_esp),
-        toNull(row.first_name_cleaned), toNull(row.company_cleaned), toNull(row.listkit_id), JSON.stringify(custom)
+        toNull(row.first_name_cleaned), toNull(row.company_cleaned), JSON.stringify(custom)
       ]);
       imported++;
     } catch (e) {
