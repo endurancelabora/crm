@@ -1322,6 +1322,26 @@ app.post('/api/import/campaign-activity', auth, async (req, res) => {
         parseInt(row.open_count) || 0, parseInt(row.click_count) || 0,
         toNull(row.sent_email_body), parseBool(row.is_unsubscribed)
       ]);
+
+      // Also register the lead in campaign_leads so the campaign shows up in the
+      // Campaigns tab and its replies are visible. Infer a category from this
+      // row's signals; the upsert never downgrades an existing higher category.
+      const hasReply = (row.reply_message && String(row.reply_message).trim()) || row.replied_at;
+      const hasOpen  = row.opened_at || (parseInt(row.open_count) || 0) > 0;
+      const cat = hasReply ? 'Replied' : (hasOpen ? 'Opened' : 'Sent');
+      await pool.query(`
+        INSERT INTO campaign_leads (email, campaign_name, lead_category, reply_message, replied_at)
+        VALUES ($1,$2,$3,$4,$5)
+        ON CONFLICT (email, campaign_name) DO UPDATE SET
+          lead_category = CASE
+            WHEN campaign_leads.lead_category IN ('Interested','Replied') THEN campaign_leads.lead_category
+            WHEN EXCLUDED.lead_category = 'Replied' THEN 'Replied'
+            WHEN campaign_leads.lead_category = 'Opened' OR EXCLUDED.lead_category = 'Opened' THEN 'Opened'
+            ELSE COALESCE(campaign_leads.lead_category, EXCLUDED.lead_category) END,
+          reply_message = COALESCE(EXCLUDED.reply_message, campaign_leads.reply_message),
+          replied_at    = COALESCE(EXCLUDED.replied_at, campaign_leads.replied_at),
+          updated_at    = NOW()
+      `, [row.email, row.campaign_name, cat, toNull(row.reply_message), toNull(row.replied_at)]);
       imported++;
     } catch (e) {
       console.error('import/campaign-activity error:', e.message, row.email);
