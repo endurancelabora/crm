@@ -1441,12 +1441,22 @@ async function openCampaignReplies(campName) {
     const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email;
     const comp = r.company_cleaned || r.company || '';
     const tags = (r.tags || []).map(t => renderTagPill(t)).join(' ');
+    const curCat = r.lead_category || '';
+    const catCol = catColorFor(curCat);
+    const catStyle = catCol
+      ? `color:${catCol};border-color:${catCol}88;background:${catCol}18`
+      : `color:var(--text2);border-color:var(--border);background:var(--bg3)`;
+    const catOpts = [...new Set([curCat, ...CAMPAIGN_CAT_OPTIONS].filter(Boolean))];
     return `
     <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;background:var(--bg3)">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
         <span style="font-weight:600">${esc(name)}</span>
         ${comp ? `<span style="color:var(--text2);font-size:12px">· ${esc(comp)}</span>` : ''}
-        ${r.lead_category ? badge(r.lead_category) : ''}
+        <select class="reply-cat-select" data-email="${encodeURIComponent(r.email)}" title="Cambiar categoría"
+                style="font-size:11px;font-weight:500;height:24px;padding:1px 22px 1px 8px;border-radius:20px;border:1px solid;cursor:pointer;${catStyle}">
+          <option value="" ${!curCat?'selected':''}>— sin categoría —</option>
+          ${catOpts.map(o => `<option value="${esc(o)}" ${o===curCat?'selected':''}>${esc(o)}</option>`).join('')}
+        </select>
         ${tags}
         <span style="margin-left:auto;color:var(--text2);font-size:11px">${r.replied_at ? fmtDate(r.replied_at) : ''}</span>
       </div>
@@ -1463,10 +1473,41 @@ async function openCampaignReplies(campName) {
 
   // Category filter chips (Todas + one per lead_category present). Multi-select:
   // each chip toggles; "Todas" clears the selection. All client-side.
-  const counts = {};
-  replies.forEach(r => { const k = r.lead_category || NO_CAT; counts[k] = (counts[k] || 0) + 1; });
-  const cats = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  let counts = {};
+  let cats = [];
+  const recomputeCats = () => {
+    counts = {};
+    replies.forEach(r => { const k = r.lead_category || NO_CAT; counts[k] = (counts[k] || 0) + 1; });
+    cats = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  };
+  recomputeCats();
   const selected = new Set();
+
+  // Wire the per-reply category selectors (rebound after every renderBody since
+  // innerHTML replaces the elements). Saving locks the row server-side.
+  const bindReplyCatSelects = () => {
+    body.querySelectorAll('.reply-cat-select').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const email = decodeURIComponent(sel.dataset.email);
+        const category = sel.value;
+        sel.disabled = true;
+        const res = await apiFetch(`/api/contacts/${encodeURIComponent(email)}/campaign-category`, {
+          method: 'POST', body: JSON.stringify({ campaign_name: campName, category })
+        });
+        if (res?.ok) {
+          const rr = replies.find(x => x.email === email);
+          if (rr) rr.lead_category = category || null;
+          recomputeCats();
+          [...selected].forEach(k => { if (!(k in counts)) selected.delete(k); });
+          renderChips();
+          renderBody();
+        } else {
+          sel.disabled = false;
+          alert('No se pudo actualizar la categoría: ' + (res?.error || 'desconocido'));
+        }
+      });
+    });
+  };
 
   const renderChips = () => {
     const chip = (key, label, count, on) =>
@@ -1489,6 +1530,7 @@ async function openCampaignReplies(campName) {
       ? `${replies.length} respuesta${replies.length !== 1 ? 's' : ''}`
       : `${list.length} de ${replies.length} respuesta${replies.length !== 1 ? 's' : ''}`;
     body.innerHTML = list.length ? list.map(cardHtml).join('') : '<div style="color:var(--text2);font-size:13px;text-align:center;padding:24px">No hay respuestas con estas categorías.</div>';
+    bindReplyCatSelects();
   };
   renderChips();
   renderBody();
