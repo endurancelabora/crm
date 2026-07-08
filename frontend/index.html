@@ -3309,7 +3309,7 @@ function bindNamesEvents() {
 // ─── Cleanup tab: pick a column, review its distinct values, merge duplicates ───
 function renderCleanup() {
   const fieldOptions = [
-    ...FILTER_FIELDS.filter(f => f.key !== 'tag'),
+    ...FILTER_FIELDS.filter(f => f.key !== 'tag' && f.key !== 'lead_category'),
     ...state.customFieldKeys.map(k => ({ key: 'cf:' + k, label: k })),
   ];
   return `
