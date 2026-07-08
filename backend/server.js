@@ -118,6 +118,17 @@ function webhookAuthorized(req) {
   return safeEqual(provided, expected);
 }
 
+// Pull the first email address out of a free-form string like "Name <a@b.com>".
+function extractEmail(s) {
+  if (!s) return null;
+  const m = String(s).match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+  return m ? m[0].toLowerCase() : null;
+}
+
+// Synthetic campaign that collects untracked replies (ones Smartlead couldn't
+// attribute to a real campaign), so they still land in a contact's history.
+const UNTRACKED_CAMPAIGN = 'Sin campaña';
+
 app.post('/webhook/smartlead', async (req, res) => {
   if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
 
@@ -125,10 +136,35 @@ app.post('/webhook/smartlead', async (req, res) => {
   const eventType = payload.event_type;
 
   try {
+    // Untracked replies have a different shape: no lead_email/campaign, and the
+    // sender's address lives inside sender_detail ("Name <email>"). Park them under
+    // the synthetic "Sin campaña" so they show up in the contact's history as a
+    // reply to be read and re-categorized manually.
+    if (eventType === 'UNTRACKED_REPLIES') {
+      const leadEmail = extractEmail(payload.sender_detail);
+      if (!leadEmail) return res.json({ ok: true, msg: 'no sender email' });
+      const rm = payload.reply_message || {};
+      const msg = stripHtml(rm.html || '') || rm.text || payload.visible_text || '';
+      const repliedAt = rm.time || payload.event_timestamp || null;
+      await pool.query(
+        `INSERT INTO contacts (email) VALUES ($1) ON CONFLICT (email) DO NOTHING`, [leadEmail]);
+      await pool.query(`
+        INSERT INTO campaign_leads (email, campaign_name, lead_category, reply_message, replied_at)
+        VALUES ($1, $2, 'Replied', $3, $4)
+        ON CONFLICT (email, campaign_name) DO UPDATE SET
+          reply_message = EXCLUDED.reply_message,
+          replied_at    = EXCLUDED.replied_at,
+          lead_category = CASE WHEN campaign_leads.lead_category IN ('Interested','Comprado')
+                          THEN campaign_leads.lead_category ELSE 'Replied' END,
+          updated_at    = NOW()
+      `, [leadEmail, UNTRACKED_CAMPAIGN, msg, repliedAt]);
+      return res.json({ ok: true, event: eventType, email: leadEmail });
+    }
+
     const email = payload.lead_email || payload.to_email;
     if (!email) return res.json({ ok: true, msg: 'no email' });
 
-    const ignored = ['CAMPAIGN_STATUS_CHANGED', 'UNTRACKED_REPLIES', 'MANUAL_STEP_REACHED', 'EMAIL_LINK_CLICK'];
+    const ignored = ['CAMPAIGN_STATUS_CHANGED', 'MANUAL_STEP_REACHED', 'EMAIL_LINK_CLICK'];
     if (ignored.includes(eventType)) return res.json({ ok: true, msg: 'ignored' });
 
     const lead = payload.lead_data || {};
