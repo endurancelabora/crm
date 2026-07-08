@@ -31,6 +31,16 @@ pool.query(`
   );
 `).catch(e => console.error('tags table creation error:', e.message));
 
+// Key/value store for shared app settings (e.g. category colors). Values are JSONB
+// so they persist server-side and are identical for every user of the CRM.
+pool.query(`
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value      JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+`).catch(e => console.error('app_settings table creation error:', e.message));
+
 // Add cleaned-value columns (originals intact) and an auto-computed
 // personalization_status. Statements run in order (single query).
 pool.query(`
@@ -230,7 +240,7 @@ const SORTABLE_COLS = {
   'tags': '(SELECT COUNT(*) FROM contact_tags ct2 WHERE ct2.contact_email = c.email)',
 };
 
-const FILTERABLE_COLS = new Set(['company','company_cleaned','first_name','last_name','first_name_cleaned','personalization_status','industry','city','state','country','source','job_title','department','phone','company_url','linkedin_personal','linkedin_company','lead_category']);
+const FILTERABLE_COLS = new Set(['email','company','company_cleaned','first_name','last_name','first_name_cleaned','personalization_status','industry','city','state','country','source','job_title','department','phone','company_url','linkedin_personal','linkedin_company','lead_category']);
 
 // Builds a parameterized WHERE clause shared by /api/contacts and /api/contacts/column-values.
 // Pass excludeField to skip any active filter on that field (used so the Excel-style value
@@ -417,6 +427,33 @@ app.get('/api/contacts/custom-field-keys', auth, async (req, res) => {
       ORDER BY key
     `);
     res.json(result.rows.map(r => r.key));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Shared category colors (category name/keyword → hex). Stored server-side so every
+// user sees the same colors in the Category column. GET returns overrides only ({}
+// when none set); the frontend merges these over its built-in defaults.
+app.get('/api/settings/cat-colors', auth, async (req, res) => {
+  try {
+    const r = await pool.query(`SELECT value FROM app_settings WHERE key = 'cat_colors'`);
+    res.json(r.rows[0]?.value || {});
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/settings/cat-colors', auth, async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    // Keep only string→string entries so we never store unexpected shapes.
+    const colors = {};
+    for (const [k, v] of Object.entries(body)) {
+      if (typeof k === 'string' && typeof v === 'string') colors[k] = v;
+    }
+    await pool.query(`
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES ('cat_colors', $1::jsonb, NOW())
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+    `, [JSON.stringify(colors)]);
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

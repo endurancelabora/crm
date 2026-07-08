@@ -334,6 +334,7 @@ function loadColOrder() {
 function saveColOrder(arr) { localStorage.setItem('crm_col_order', JSON.stringify(arr.map(c => c.key))); }
 
 const FILTER_FIELDS = [
+  { key: 'email',      label: 'Email' },
   { key: 'company',    label: 'Company' },
   { key: 'company_cleaned',    label: 'Company Cleaned' },
   { key: 'first_name', label: 'First Name' },
@@ -466,18 +467,56 @@ async function apiFetch(path, opts = {}) {
   return res.json();
 }
 
+// Default category → color (hex). Keys are matched case-insensitively as substrings
+// (data has mixed casing, e.g. "Out Of Office"). The user can override any of these
+// from Admin → "Colores de categorías"; overrides are stored server-side (shared by
+// all users) and merged over these defaults at load time.
+const DEFAULT_CAT_COLORS = {
+  'meeting booked':      '#4ade80',
+  'meeting request':     '#4ade80',
+  'interested':          '#4ade80',
+  'information request': '#60a5fa',
+  'respondió':           '#60a5fa',
+  'replied':             '#60a5fa',
+  'opened':              '#a78bfa',
+  'out of office':       '#fbbf24',
+  'bounce':              '#fbbf24',
+  'not interested':      '#f87171',
+  'wrong person':        '#f87171',
+  'do not contact':      '#f87171',
+};
+// In-memory merged colors (defaults + server overrides). badge() reads this
+// synchronously; loadCatColors() refreshes it from the backend at startup.
+let _catColors = { ...DEFAULT_CAT_COLORS };
+async function loadCatColors() {
+  const saved = await apiFetch('/api/settings/cat-colors');
+  const overrides = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  _catColors = { ...DEFAULT_CAT_COLORS, ...overrides };
+  return _catColors;
+}
+function getCatColors() { return _catColors; }
+async function saveCatColors(map) {
+  _catColors = { ...DEFAULT_CAT_COLORS, ...map };
+  return apiFetch('/api/settings/cat-colors', { method: 'PUT', body: JSON.stringify(map) });
+}
+async function resetCatColors() {
+  _catColors = { ...DEFAULT_CAT_COLORS };
+  return apiFetch('/api/settings/cat-colors', { method: 'PUT', body: JSON.stringify({}) });
+}
+// Turns a color into an inline badge style (translucent bg + border, solid text).
+function catBadgeStyle(color) {
+  return `background:${color}26;color:${color};border:1px solid ${color}55`;
+}
+
 function badge(cat) {
   if (!cat) return '';
-  // Keys are matched case-insensitively (data has mixed casing, e.g. "Out Of Office").
-  const map = {
-    'interested': 'badge-green', 'meeting booked': 'badge-green', 'meeting request': 'badge-green',
-    'replied': 'badge-blue', 'respondió': 'badge-blue', 'information request': 'badge-blue',
-    'out of office': 'badge-amber', 'bounce': 'badge-amber',
-    'not interested': 'badge-red', 'wrong person': 'badge-red', 'do not contact': 'badge-red',
-  };
+  const colors = getCatColors();
   const lc = cat.toLowerCase();
-  const cls = Object.entries(map).find(([k]) => lc.includes(k))?.[1] || 'badge-gray';
-  return `<span class="badge ${cls}">${cat}</span>`;
+  // Longest keyword first so specific categories win (e.g. "not interested" beats "interested").
+  const hit = Object.entries(colors).sort((a, b) => b[0].length - a[0].length)
+                    .find(([k]) => lc.includes(k));
+  if (!hit) return `<span class="badge badge-gray">${cat}</span>`;
+  return `<span class="badge" style="${catBadgeStyle(hit[1])}">${cat}</span>`;
 }
 
 function fmtDate(d) {
@@ -974,7 +1013,45 @@ function renderAdmin() {
       </div>
     </div>
 
+    <!-- Category colors card -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px">
+      <div style="display:flex;align-items:flex-start;gap:16px">
+        <div style="font-size:32px;line-height:1">🎨</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Colores de categorías</div>
+          <div style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:16px">
+            Personaliza el color de cada categoría que aparece en la columna
+            <strong style="color:var(--text)">Category</strong>. La coincidencia es por texto (ej. cualquier
+            valor que contenga <code style="background:rgba(255,255,255,.07);padding:1px 6px;border-radius:3px">interested</code>
+            usa ese color). Los cambios se guardan en este navegador.
+          </div>
+          <div id="cat-color-list">${renderCatColorRows()}</div>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:16px">
+            <button class="btn btn-green" id="cat-colors-save-btn">✅ Guardar</button>
+            <button class="btn btn-secondary" id="cat-colors-reset-btn">↺ Restaurar por defecto</button>
+            <span id="cat-colors-status" style="color:var(--text2);font-size:12px"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>`;
+}
+
+// Prettify a lowercase category keyword for display: "out of office" → "Out Of Office".
+function prettyCat(s) {
+  return s.replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function renderCatColorRows() {
+  const colors = getCatColors();
+  return Object.entries(colors).map(([name, color]) => `
+    <div class="cat-color-row" data-cat="${name}" style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <input type="color" class="cat-color-input" data-cat="${name}" value="${color}"
+             style="width:40px;height:28px;padding:0;border:1px solid var(--border);border-radius:6px;background:none;cursor:pointer">
+      <span class="badge cat-color-preview" data-cat="${name}" style="${catBadgeStyle(color)}">${prettyCat(name)}</span>
+      <code style="font-size:11px;color:var(--text2);margin-left:auto">contiene "${name}"</code>
+    </div>`).join('');
 }
 
 function renderCompanies() {
@@ -2292,6 +2369,49 @@ function bindAdminEvents() {
       }
     };
   };
+
+  // ── Category colors ──
+  // Live preview: recolor the badge + swatch as the user drags the picker.
+  document.querySelectorAll('.cat-color-input').forEach(input => {
+    input.addEventListener('input', () => {
+      const preview = document.querySelector(`.cat-color-preview[data-cat="${input.dataset.cat}"]`);
+      if (preview) preview.setAttribute('style', catBadgeStyle(input.value));
+    });
+  });
+
+  const catStatus = document.getElementById('cat-colors-status');
+  const catSaveBtn = document.getElementById('cat-colors-save-btn');
+  const catResetBtn = document.getElementById('cat-colors-reset-btn');
+  catSaveBtn?.addEventListener('click', async () => {
+    const map = {};
+    document.querySelectorAll('.cat-color-input').forEach(i => { map[i.dataset.cat] = i.value; });
+    catSaveBtn.disabled = true;
+    if (catStatus) catStatus.textContent = 'Guardando…';
+    const res = await saveCatColors(map);
+    catSaveBtn.disabled = false;
+    if (catStatus) {
+      catStatus.textContent = res?.ok ? '✅ Guardado para todos' : '⚠ Error al guardar';
+      setTimeout(() => { if (catStatus) catStatus.textContent = ''; }, 2800);
+    }
+  });
+  catResetBtn?.addEventListener('click', async () => {
+    catResetBtn.disabled = true;
+    if (catStatus) catStatus.textContent = 'Restaurando…';
+    const res = await resetCatColors();
+    const colors = getCatColors(); // defaults again
+    document.querySelectorAll('.cat-color-input').forEach(i => {
+      const c = colors[i.dataset.cat];
+      if (!c) return;
+      i.value = c;
+      const preview = document.querySelector(`.cat-color-preview[data-cat="${i.dataset.cat}"]`);
+      if (preview) preview.setAttribute('style', catBadgeStyle(c));
+    });
+    catResetBtn.disabled = false;
+    if (catStatus) {
+      catStatus.textContent = res?.ok ? '↺ Restaurado' : '⚠ Error';
+      setTimeout(() => { if (catStatus) catStatus.textContent = ''; }, 2800);
+    }
+  });
 }
 
 function bindCompanyEvents() {
@@ -3084,6 +3204,7 @@ async function loadAll() {
     apiFetch(`/api/campaigns?sort_by=${state.campSort}&sort_dir=${state.campDir}${state.campSearch?'&search='+encodeURIComponent(state.campSearch):''}`),
     apiFetch('/api/tags'),
     apiFetch('/api/contacts/custom-field-keys'),
+    loadCatColors(), // shared category colors → badge()
   ]);
   state.stats = stats;
   state.campaigns = campaigns || [];
