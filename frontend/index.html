@@ -1360,25 +1360,34 @@ async function openCampaignReplies(campName) {
     return;
   }
 
-  // Category filter chips (Todas + one per lead_category present), filtered client-side.
+  // Category filter chips (Todas + one per lead_category present). Multi-select:
+  // each chip toggles; "Todas" clears the selection. All client-side.
   const counts = {};
   replies.forEach(r => { const k = r.lead_category || NO_CAT; counts[k] = (counts[k] || 0) + 1; });
   const cats = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
-  let activeCat = '__all__';
+  const selected = new Set();
 
   const renderChips = () => {
-    const chip = (key, label, count) => {
-      const on = activeCat === key;
-      return `<button class="reply-cat-chip" data-cat="${encodeURIComponent(key)}" style="font-size:11px;padding:4px 10px;border-radius:999px;cursor:pointer;border:1px solid ${on ? 'var(--accent)' : 'var(--border)'};background:${on ? 'var(--accent)' : 'var(--bg3)'};color:${on ? '#fff' : 'var(--text2)'}">${esc(label)} <span style="opacity:.75">${count}</span></button>`;
-    };
-    filterBar.innerHTML = chip('__all__', 'Todas', replies.length) + cats.map(c => chip(c, c, counts[c])).join('');
+    const chip = (key, label, count, on) =>
+      `<button class="reply-cat-chip" data-cat="${encodeURIComponent(key)}" style="font-size:11px;padding:4px 10px;border-radius:999px;cursor:pointer;border:1px solid ${on ? 'var(--accent)' : 'var(--border)'};background:${on ? 'var(--accent)' : 'var(--bg3)'};color:${on ? '#fff' : 'var(--text2)'}">${on && key !== '__all__' ? '✓ ' : ''}${esc(label)} <span style="opacity:.75">${count}</span></button>`;
+    filterBar.innerHTML = chip('__all__', 'Todas', replies.length, selected.size === 0)
+      + cats.map(c => chip(c, c, counts[c], selected.has(c))).join('');
     filterBar.querySelectorAll('.reply-cat-chip').forEach(btn => {
-      btn.addEventListener('click', () => { activeCat = decodeURIComponent(btn.dataset.cat); renderChips(); renderBody(); });
+      btn.addEventListener('click', () => {
+        const key = decodeURIComponent(btn.dataset.cat);
+        if (key === '__all__') selected.clear();
+        else if (selected.has(key)) selected.delete(key);
+        else selected.add(key);
+        renderChips(); renderBody();
+      });
     });
   };
   const renderBody = () => {
-    const list = activeCat === '__all__' ? replies : replies.filter(r => (r.lead_category || NO_CAT) === activeCat);
-    body.innerHTML = list.length ? list.map(cardHtml).join('') : '<div style="color:var(--text2);font-size:13px;text-align:center;padding:24px">No hay respuestas con esta categoría.</div>';
+    const list = selected.size === 0 ? replies : replies.filter(r => selected.has(r.lead_category || NO_CAT));
+    if (sub) sub.textContent = selected.size === 0
+      ? `${replies.length} respuesta${replies.length !== 1 ? 's' : ''}`
+      : `${list.length} de ${replies.length} respuesta${replies.length !== 1 ? 's' : ''}`;
+    body.innerHTML = list.length ? list.map(cardHtml).join('') : '<div style="color:var(--text2);font-size:13px;text-align:center;padding:24px">No hay respuestas con estas categorías.</div>';
   };
   renderChips();
   renderBody();
