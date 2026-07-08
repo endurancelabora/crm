@@ -1318,6 +1318,7 @@ async function openCampaignReplies(campName) {
         </div>
         <button class="close-btn" id="camp-replies-close">✕</button>
       </div>
+      <div id="camp-replies-filter" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 20px;border-bottom:1px solid var(--border)"></div>
       <div class="chat-messages" id="camp-replies-body">
         <div class="loading" style="text-align:center;padding:24px"><div class="spinner"></div></div>
       </div>
@@ -1331,9 +1332,11 @@ async function openCampaignReplies(campName) {
   const sub = document.getElementById('camp-replies-sub');
   if (sub) sub.textContent = `${replies.length} respuesta${replies.length !== 1 ? 's' : ''}`;
   const body = document.getElementById('camp-replies-body');
+  const filterBar = document.getElementById('camp-replies-filter');
   if (!body) return;
 
-  body.innerHTML = replies.length ? replies.map(r => {
+  const NO_CAT = '— Sin categoría —';
+  const cardHtml = r => {
     const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email;
     const comp = r.company_cleaned || r.company || '';
     const tags = (r.tags || []).map(t => renderTagPill(t)).join(' ');
@@ -1349,7 +1352,36 @@ async function openCampaignReplies(campName) {
       <div style="color:var(--text2);font-size:12px;margin-bottom:8px">${esc(r.email)}</div>
       <div style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.6;color:var(--text);border-left:2px solid var(--border);padding-left:10px">${r.reply_message ? esc(r.reply_message) : '<span style="color:var(--text2)">(respuesta sin texto)</span>'}</div>
     </div>`;
-  }).join('') : '<div style="color:var(--text2);font-size:13px;text-align:center;padding:24px">No hay respuestas registradas en esta campaña.</div>';
+  };
+
+  if (!replies.length) {
+    if (filterBar) filterBar.style.display = 'none';
+    body.innerHTML = '<div style="color:var(--text2);font-size:13px;text-align:center;padding:24px">No hay respuestas registradas en esta campaña.</div>';
+    return;
+  }
+
+  // Category filter chips (Todas + one per lead_category present), filtered client-side.
+  const counts = {};
+  replies.forEach(r => { const k = r.lead_category || NO_CAT; counts[k] = (counts[k] || 0) + 1; });
+  const cats = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  let activeCat = '__all__';
+
+  const renderChips = () => {
+    const chip = (key, label, count) => {
+      const on = activeCat === key;
+      return `<button class="reply-cat-chip" data-cat="${encodeURIComponent(key)}" style="font-size:11px;padding:4px 10px;border-radius:999px;cursor:pointer;border:1px solid ${on ? 'var(--accent)' : 'var(--border)'};background:${on ? 'var(--accent)' : 'var(--bg3)'};color:${on ? '#fff' : 'var(--text2)'}">${esc(label)} <span style="opacity:.75">${count}</span></button>`;
+    };
+    filterBar.innerHTML = chip('__all__', 'Todas', replies.length) + cats.map(c => chip(c, c, counts[c])).join('');
+    filterBar.querySelectorAll('.reply-cat-chip').forEach(btn => {
+      btn.addEventListener('click', () => { activeCat = decodeURIComponent(btn.dataset.cat); renderChips(); renderBody(); });
+    });
+  };
+  const renderBody = () => {
+    const list = activeCat === '__all__' ? replies : replies.filter(r => (r.lead_category || NO_CAT) === activeCat);
+    body.innerHTML = list.length ? list.map(cardHtml).join('') : '<div style="color:var(--text2);font-size:13px;text-align:center;padding:24px">No hay respuestas con esta categoría.</div>';
+  };
+  renderChips();
+  renderBody();
 }
 
 // ─── Import Modal ──────────────────────────────────────────
