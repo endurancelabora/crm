@@ -1615,6 +1615,17 @@ function applyUserMapping() {
     return out;
   });
 
+  // Every import type is keyed by email. Drop rows without a valid email:
+  // malformed CSVs (e.g. Smartlead reports whose replied-email bodies contain
+  // raw forwarded emails with unescaped quotes) split the body across lines,
+  // producing fragment rows with no email. Guarded so it never wipes everything
+  // (in case no column was mapped to email).
+  const isValidEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(e || '').trim());
+  const beforeCount = importState.mapped.length;
+  const withEmail = importState.mapped.filter(r => isValidEmail(r.email));
+  importState.skippedNoEmail = (withEmail.length > 0) ? beforeCount - withEmail.length : 0;
+  if (withEmail.length > 0) importState.mapped = withEmail;
+
   importState.mappedCols = Object.keys(importState.mapped[0] || {}).filter(k => knownSet.has(k));
   importState.customCols = Object.keys(importState.mapped[0] || {}).filter(k => !knownSet.has(k) && k !== 'email');
 
@@ -1622,6 +1633,7 @@ function applyUserMapping() {
   area.innerHTML = `
     <div class="import-preview">
       <div class="import-preview-title">✅ ${importState.mapped.length.toLocaleString()} rows ready</div>
+      ${importState.skippedNoEmail ? `<div style="font-size:11px;color:var(--text2);margin-bottom:6px">⚠️ ${importState.skippedNoEmail.toLocaleString()} filas omitidas por no tener email válido (fragmentos de correos mal formados en el archivo).</div>` : ''}
       <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Mapped columns:</div>
       <div class="import-preview-row">
         ${importState.mappedCols.map(c => `<span class="col-mapped">${c}</span>`).join('')}
