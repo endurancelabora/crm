@@ -457,6 +457,20 @@ app.put('/api/settings/cat-colors', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Distinct campaign categories (lead_category) present in the data, most common first.
+// Feeds the Category filter dropdown so it always reflects real values (incl. Comprado).
+app.get('/api/categories', auth, async (req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT lead_category AS value, COUNT(*)::int AS count
+      FROM campaign_leads
+      WHERE lead_category IS NOT NULL AND lead_category <> ''
+      GROUP BY lead_category
+      ORDER BY count DESC, value ASC`);
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Excel-style filter picker: distinct values (+counts) for a column, respecting all
 // OTHER currently active filters (search/campaign/category/filters minus this field).
 app.get('/api/contacts/column-values', auth, async (req, res) => {

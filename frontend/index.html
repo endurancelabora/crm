@@ -369,7 +369,7 @@ let state = {
   contacts: [], total: 0, page: 1,
   search: '', campaign: '', category: '',
   selectedCampaigns: [], selectedCategories: [],
-  campaigns: [], stats: null, tags: [],
+  campaigns: [], stats: null, tags: [], categories: [],
   drawerEmail: null, drawerData: null, drawerTags: [],
   drawerEditing: false,
   sort_by: 'email', sort_dir: 'ASC', limit: 50,
@@ -838,7 +838,7 @@ function renderContacts() {
       </button>
       <div class="dropdown-panel hidden" id="category-panel" style="min-width:200px;left:0;right:auto">
         <div class="panel-title">Categories</div>
-        ${['Comprado','Interested','Meeting Booked','Replied','Opened','Out of Office','Not Interested'].map(cat => `
+        ${[...new Set(['Comprado', ...(state.categories || [])])].map(cat => `
         <label class="ms-item">
           <input type="checkbox" class="cat-check" value="${cat}" ${state.selectedCategories.includes(cat)?'checked':''}>
           ${cat}
@@ -3223,17 +3223,19 @@ function bindContactsEvents() {
 // DATA ACTIONS
 // ═══════════════════════════════════════════════════════════
 async function loadAll() {
-  const [stats, campaigns, tags, cfKeys] = await Promise.all([
+  const [stats, campaigns, tags, cfKeys, cats] = await Promise.all([
     apiFetch('/api/stats'),
     apiFetch(`/api/campaigns?sort_by=${state.campSort}&sort_dir=${state.campDir}${state.campSearch?'&search='+encodeURIComponent(state.campSearch):''}`),
     apiFetch('/api/tags'),
     apiFetch('/api/contacts/custom-field-keys'),
+    apiFetch('/api/categories'),
     loadCatColors(), // shared category colors → badge()
   ]);
   state.stats = stats;
   state.campaigns = campaigns || [];
   state.tags = tags || [];
   state.customFieldKeys = cfKeys || [];
+  state.categories = (cats || []).map(r => r.value);
   await loadContacts();
 }
 
