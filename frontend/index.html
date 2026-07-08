@@ -483,6 +483,7 @@ const DEFAULT_CAT_COLORS = {
   'not interested':      '#f87171',
   'wrong person':        '#f87171',
   'do not contact':      '#f87171',
+  'comprado':            '#14b8a6',
 };
 // In-memory merged colors (defaults + server overrides). badge() reads this
 // synchronously; loadCatColors() refreshes it from the backend at startup.
@@ -507,16 +508,29 @@ function catBadgeStyle(color) {
   return `background:${color}26;color:${color};border:1px solid ${color}55`;
 }
 
-function badge(cat) {
-  if (!cat) return '';
+// Resolve a category's configured color (hex), or null if none matches.
+function catColorFor(cat) {
+  if (!cat) return null;
   const colors = getCatColors();
   const lc = cat.toLowerCase();
   // Longest keyword first so specific categories win (e.g. "not interested" beats "interested").
   const hit = Object.entries(colors).sort((a, b) => b[0].length - a[0].length)
                     .find(([k]) => lc.includes(k));
-  if (!hit) return `<span class="badge badge-gray">${cat}</span>`;
-  return `<span class="badge" style="${catBadgeStyle(hit[1])}">${cat}</span>`;
+  return hit ? hit[1] : null;
 }
+
+function badge(cat) {
+  if (!cat) return '';
+  const color = catColorFor(cat);
+  if (!color) return `<span class="badge badge-gray">${cat}</span>`;
+  return `<span class="badge" style="${catBadgeStyle(color)}">${cat}</span>`;
+}
+
+// Categories offered in the per-campaign selector inside the contact drawer.
+// "Comprado" first so marking a won deal is one click.
+const CAMPAIGN_CAT_OPTIONS = ['Comprado','Interested','Meeting Request','Meeting Booked',
+  'Information Request','Replied','Opened','Out Of Office','Not Interested','Wrong Person',
+  'Do Not Contact','Sent','Sender Originated Bounce','Uncategorizable by Ai'];
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -824,7 +838,7 @@ function renderContacts() {
       </button>
       <div class="dropdown-panel hidden" id="category-panel" style="min-width:200px;left:0;right:auto">
         <div class="panel-title">Categories</div>
-        ${['Interested','Meeting Booked','Replied','Opened','Out of Office','Not Interested'].map(cat => `
+        ${['Comprado','Interested','Meeting Booked','Replied','Opened','Out of Office','Not Interested'].map(cat => `
         <label class="ms-item">
           <input type="checkbox" class="cat-check" value="${cat}" ${state.selectedCategories.includes(cat)?'checked':''}>
           ${cat}
@@ -1264,12 +1278,23 @@ function renderDrawer() {
           const seqFromLeads = parseInt((cl.current_sequence||'').replace(/\D/g,''))||0;
           const sentCount = acts.length || seqFromLeads;
           const hasReply = acts.some(a => a.replied_at) || cl.reply_message;
+          const curCat = cl.lead_category || '';
+          const catCol = catColorFor(curCat);
+          const catStyle = catCol
+            ? `color:${catCol};border-color:${catCol}88;background:${catCol}18`
+            : `color:var(--text2);border-color:var(--border);background:var(--bg3)`;
+          const catOpts = [...new Set([curCat, ...CAMPAIGN_CAT_OPTIONS].filter(Boolean))];
           return `
           <div class="campaign-card" data-camp-name="${encodeURIComponent(cl.campaign_name||'')}">
             <div class="campaign-header">
               <div class="campaign-name">${cl.campaign_name || 'Unknown campaign'}</div>
               <div style="display:flex;gap:6px;align-items:center">
-                ${badge(cl.lead_category)}
+                <select class="camp-cat-select" data-camp="${encodeURIComponent(cl.campaign_name||'')}"
+                        onclick="event.stopPropagation()" title="Cambiar categoría de esta campaña"
+                        style="font-size:11px;font-weight:500;height:24px;padding:1px 22px 1px 8px;border-radius:20px;border:1px solid;cursor:pointer;${catStyle}">
+                  <option value="" ${!curCat?'selected':''} style="color:var(--text);background:var(--bg2)">— sin categoría —</option>
+                  ${catOpts.map(o => `<option value="${o}" ${o===curCat?'selected':''} style="color:var(--text);background:var(--bg2)">${o}</option>`).join('')}
+                </select>
                 <span style="font-size:11px;color:var(--text2)">▶</span>
               </div>
             </div>
@@ -3724,6 +3749,29 @@ function refreshDrawerUI() {
     card.addEventListener('click', () => {
       const name = decodeURIComponent(card.dataset.campName);
       openChatModal(name, state.drawerData);
+    });
+  });
+
+  // Per-campaign category selector (e.g. mark a campaign as "Comprado").
+  document.querySelectorAll('.camp-cat-select').forEach(sel => {
+    sel.addEventListener('change', async e => {
+      e.stopPropagation();
+      const campaign_name = decodeURIComponent(sel.dataset.camp);
+      const category = sel.value;
+      sel.disabled = true;
+      const res = await apiFetch(`/api/contacts/${encodeURIComponent(state.drawerEmail)}/campaign-category`, {
+        method: 'POST', body: JSON.stringify({ campaign_name, category })
+      });
+      if (res?.ok) {
+        (state.drawerData.campaign_leads || []).forEach(cl => {
+          if ((cl.campaign_name || '') === campaign_name) cl.lead_category = category || null;
+        });
+        refreshDrawerUI();     // recolor the selector
+        loadContacts();        // refresh the Category column in the table behind
+      } else {
+        sel.disabled = false;
+        alert('No se pudo actualizar la categoría: ' + (res?.error || 'desconocido'));
+      }
     });
   });
 }

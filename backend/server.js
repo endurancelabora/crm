@@ -554,6 +554,28 @@ app.post('/api/contacts/merge-values', auth, async (req, res) => {
   }
 });
 
+// Set the lead_category of a contact's reply for ONE specific campaign. This is what
+// feeds the computed "Category" column, so marking a campaign as e.g. "Comprado" both
+// shows up there and records WHICH campaign converted (the campaign_leads row keeps
+// its campaign_name). Empty category clears it.
+app.post('/api/contacts/:email/campaign-category', auth, async (req, res) => {
+  try {
+    const { email } = req.params;
+    const campaign_name = String(req.body?.campaign_name || '').trim();
+    let category = String(req.body?.category ?? '').trim();
+    if (!campaign_name) return res.status(400).json({ error: 'campaign_name required' });
+    if (category.length > 100) category = category.slice(0, 100);
+    const result = await pool.query(
+      `UPDATE campaign_leads SET lead_category = $1, updated_at = NOW()
+       WHERE email = $2 AND campaign_name = $3`,
+      [category || null, email, campaign_name]
+    );
+    res.json({ ok: true, updated: result.rowCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/contacts/:email', auth, async (req, res) => {
   try {
     const { email } = req.params;
