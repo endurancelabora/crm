@@ -1038,16 +1038,16 @@ app.post('/api/export', auth, async (req, res) => {
         c.email, c.first_name, c.first_name_cleaned, c.last_name,
         c.company, c.company_cleaned, c.phone, c.job_title, c.department,
         c.industry, c.city, c.state, c.country, c.company_url,
-        c.linkedin_personal, c.linkedin_company, c.source, c.lead_category,
+        c.linkedin_personal, c.linkedin_company, c.source,
         (SELECT STRING_AGG(DISTINCT cl.campaign_name, ' | ') FROM campaign_leads cl WHERE cl.email = c.email) AS campaigns,
-        (SELECT STRING_AGG(DISTINCT cl.lead_category, ', ') FROM campaign_leads cl WHERE cl.email = c.email) AS categories,
+        (SELECT STRING_AGG(DISTINCT cl.lead_category, ', ') FROM campaign_leads cl WHERE cl.email = c.email) AS category,
         (SELECT STRING_AGG(DISTINCT t.name, ', ') FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = c.email) AS tags
       FROM contacts c
       ${where}
       ORDER BY c.email
     `, params);
 
-    const headers = ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','lead_category','campaigns','categories','tags'];
+    const headers = ['email','first_name','first_name_cleaned','last_name','company','company_cleaned','phone','job_title','department','industry','city','state','country','company_url','linkedin_personal','linkedin_company','source','campaigns','category','tags'];
     const csvRows = [headers.join(',')];
     for (const row of result.rows) {
       csvRows.push(headers.map(h => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(','));
