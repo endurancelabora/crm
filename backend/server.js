@@ -41,6 +41,11 @@ pool.query(`
   );
 `).catch(e => console.error('app_settings table creation error:', e.message));
 
+// When a category is set manually in the CRM, lock the row so automatic sources
+// (Smartlead webhooks, CSV imports) never overwrite the human decision.
+pool.query(`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS category_locked BOOLEAN DEFAULT FALSE;`)
+  .catch(e => console.error('campaign_leads.category_locked migration error:', e.message));
+
 // Add cleaned-value columns (originals intact) and an auto-computed
 // personalization_status. Statements run in order (single query).
 pool.query(`
@@ -154,7 +159,8 @@ app.post('/webhook/smartlead', async (req, res) => {
         ON CONFLICT (email, campaign_name) DO UPDATE SET
           reply_message = EXCLUDED.reply_message,
           replied_at    = EXCLUDED.replied_at,
-          lead_category = CASE WHEN campaign_leads.lead_category IN ('Interested','Comprado')
+          lead_category = CASE WHEN campaign_leads.category_locked
+                                 OR campaign_leads.lead_category IN ('Interested','Comprado')
                           THEN campaign_leads.lead_category ELSE 'Replied' END,
           updated_at    = NOW()
       `, [leadEmail, UNTRACKED_CAMPAIGN, msg, repliedAt]);
@@ -199,7 +205,8 @@ app.post('/webhook/smartlead', async (req, res) => {
             (email, campaign_id, campaign_name, lead_category, sentiment, reply_message, history, replied_at)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
           ON CONFLICT (email, campaign_name) DO UPDATE SET
-            lead_category = EXCLUDED.lead_category,
+            lead_category = CASE WHEN campaign_leads.category_locked
+                            THEN campaign_leads.lead_category ELSE EXCLUDED.lead_category END,
             sentiment     = EXCLUDED.sentiment,
             reply_message = EXCLUDED.reply_message,
             history       = EXCLUDED.history,
@@ -242,7 +249,8 @@ app.post('/webhook/smartlead', async (req, res) => {
           INSERT INTO campaign_leads (email, campaign_id, campaign_name, lead_category)
           VALUES ($1,$2,$3,'Opened')
           ON CONFLICT (email, campaign_name) DO UPDATE SET
-            lead_category = CASE WHEN campaign_leads.lead_category IN ('Interested','Replied')
+            lead_category = CASE WHEN campaign_leads.category_locked
+                                   OR campaign_leads.lead_category IN ('Interested','Replied','Comprado')
                             THEN campaign_leads.lead_category ELSE 'Opened' END,
             updated_at = NOW()
         `, [email, payload.campaign_id || null, payload.campaign_name || null]);
@@ -607,7 +615,9 @@ app.post('/api/contacts/merge-values', auth, async (req, res) => {
 // Set the lead_category of a contact's reply for ONE specific campaign. This is what
 // feeds the computed "Category" column, so marking a campaign as e.g. "Comprado" both
 // shows up there and records WHICH campaign converted (the campaign_leads row keeps
-// its campaign_name). Empty category clears it.
+// its campaign_name). This is a MANUAL edit, so it locks the row: automatic sources
+// (webhooks, imports) will no longer overwrite the category. Clearing the category
+// (empty) unlocks the row so automation can take over again.
 app.post('/api/contacts/:email/campaign-category', auth, async (req, res) => {
   try {
     const { email } = req.params;
@@ -615,10 +625,11 @@ app.post('/api/contacts/:email/campaign-category', auth, async (req, res) => {
     let category = String(req.body?.category ?? '').trim();
     if (!campaign_name) return res.status(400).json({ error: 'campaign_name required' });
     if (category.length > 100) category = category.slice(0, 100);
+    const locked = !!category; // a real value locks it; clearing unlocks (back to auto)
     const result = await pool.query(
-      `UPDATE campaign_leads SET lead_category = $1, updated_at = NOW()
-       WHERE email = $2 AND campaign_name = $3`,
-      [category || null, email, campaign_name]
+      `UPDATE campaign_leads SET lead_category = $1, category_locked = $2, updated_at = NOW()
+       WHERE email = $3 AND campaign_name = $4`,
+      [category || null, locked, email, campaign_name]
     );
     res.json({ ok: true, updated: result.rowCount });
   } catch (err) {
@@ -1371,7 +1382,9 @@ app.post('/api/import/campaign-leads', auth, async (req, res) => {
            current_sequence, location, company_city, website, custom_fields)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         ON CONFLICT (email, campaign_name) DO UPDATE SET
-          lead_category    = COALESCE(EXCLUDED.lead_category, campaign_leads.lead_category),
+          lead_category    = CASE WHEN campaign_leads.category_locked
+                             THEN campaign_leads.lead_category
+                             ELSE COALESCE(EXCLUDED.lead_category, campaign_leads.lead_category) END,
           status           = COALESCE(EXCLUDED.status, campaign_leads.status),
           esp_type         = COALESCE(EXCLUDED.esp_type, campaign_leads.esp_type),
           current_sequence = COALESCE(EXCLUDED.current_sequence, campaign_leads.current_sequence),
@@ -1443,7 +1456,8 @@ app.post('/api/import/campaign-activity', auth, async (req, res) => {
         VALUES ($1,$2,$3,$4,$5)
         ON CONFLICT (email, campaign_name) DO UPDATE SET
           lead_category = CASE
-            WHEN campaign_leads.lead_category IN ('Interested','Replied') THEN campaign_leads.lead_category
+            WHEN campaign_leads.category_locked THEN campaign_leads.lead_category
+            WHEN campaign_leads.lead_category IN ('Interested','Replied','Comprado') THEN campaign_leads.lead_category
             WHEN EXCLUDED.lead_category = 'Replied' THEN 'Replied'
             WHEN campaign_leads.lead_category = 'Opened' OR EXCLUDED.lead_category = 'Opened' THEN 'Opened'
             ELSE COALESCE(campaign_leads.lead_category, EXCLUDED.lead_category) END,
