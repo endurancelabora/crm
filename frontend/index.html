@@ -499,30 +499,79 @@ function fmtLink(url, label) {
   return `<a href="${href}" target="_blank" rel="noopener" style="color:var(--accent-light);text-decoration:none" onclick="event.stopPropagation()" title="${safe}">${text}</a>`;
 }
 
-// CSV parser
+// CSV parser — RFC 4180. Scans char by char so it correctly handles quoted
+// fields containing commas, escaped quotes ("") and NEWLINES (e.g. multi-line
+// email bodies in Smartlead "Sent Email"/"Reply Message" columns). The old
+// line-by-line split broke every record whose body spanned multiple lines.
 function parseCSV(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (!lines.length) return [];
-  const headers = parseCSVRow(lines[0]);
-  return lines.slice(1).map(line => {
-    const vals = parseCSVRow(line);
+  const rows = [];
+  let field = '', row = [], inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } // escaped quote
+        else inQ = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else if (c === '\r') { /* handled on \n */ }
+      else field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  if (!rows.length) return [];
+
+  const headers = rows[0].map(h => h.trim());
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r];
+    if (cells.length === 1 && cells[0].trim() === '') continue; // blank line
     const obj = {};
-    headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
-    return obj;
-  }).filter(r => Object.values(r).some(v => v));
+    headers.forEach((h, i) => { obj[h] = (cells[i] ?? '').trim(); });
+    if (Object.values(obj).some(v => v)) out.push(obj);
+  }
+  return out;
 }
 
-function parseCSVRow(line) {
-  const result = [];
-  let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
-    else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
-    else cur += c;
+// Windows-1252 glyphs for bytes 0x80–0x9F (these differ from Latin-1). Bytes
+// 0xA0–0xFF map 1:1 to the same Unicode code point, so they need no table.
+const WIN1252 = {128:'€',130:'‚',131:'ƒ',132:'„',133:'…',134:'†',135:'‡',136:'ˆ',137:'‰',138:'Š',139:'‹',140:'Œ',142:'Ž',145:'‘',146:'’',147:'“',148:'”',149:'•',150:'–',151:'—',152:'˜',153:'™',154:'š',155:'›',156:'œ',158:'ž',159:'Ÿ'};
+
+// Decode CSV bytes preferring UTF-8, falling back to Windows-1252 for any byte
+// that isn't valid UTF-8. Handles clean UTF-8 (fast path) and "dirty" files that
+// are mostly UTF-8 but carry stray Latin-1/Win-1252 bytes (e.g. a lone 0xF1 for
+// ñ) without corrupting the valid multi-byte chars/emoji around them.
+function decodeBytesSmart(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const utf8 = new TextDecoder('utf-8', { fatal: false });
+  const clean = utf8.decode(bytes);
+  if (clean.indexOf('�') === -1) return clean; // no bad bytes → done (BOM stripped by TextDecoder)
+
+  // Salvage path: decode runs of valid UTF-8 in bulk, patch bad bytes 1 by 1.
+  const n = bytes.length;
+  let out = '', i = 0, runStart = 0;
+  if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) { i = 3; runStart = 3; }
+  const flush = end => { if (end > runStart) out += utf8.decode(bytes.subarray(runStart, end)); };
+  while (i < n) {
+    const c = bytes[i];
+    if (c < 0x80) { i++; continue; }
+    let len = 0;
+    if (c >= 0xC2 && c <= 0xDF) len = 1;
+    else if (c >= 0xE0 && c <= 0xEF) len = 2;
+    else if (c >= 0xF0 && c <= 0xF4) len = 3;
+    let ok = len > 0;
+    for (let k = 1; k <= len && ok; k++) {
+      const cc = bytes[i + k];
+      if (cc === undefined || (cc & 0xC0) !== 0x80) ok = false;
+    }
+    if (ok) { i += len + 1; }                              // valid seq → keep in run
+    else { flush(i); out += WIN1252[c] || String.fromCharCode(c); i++; runStart = i; } // bad byte
   }
-  result.push(cur.trim());
-  return result;
+  flush(n);
+  return out;
 }
 
 function mapColumns(rows) {
@@ -1477,10 +1526,10 @@ function bindImportModal() {
 function loadFile(file) {
   const reader = new FileReader();
   reader.onload = e => {
-    importState.rows = parseCSV(e.target.result);
+    importState.rows = parseCSV(decodeBytesSmart(e.target.result));
     processFile();
   };
-  reader.readAsText(file, 'UTF-8');
+  reader.readAsArrayBuffer(file);
 }
 
 const ALL_FIELDS = {
