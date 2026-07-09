@@ -46,6 +46,22 @@ pool.query(`
 pool.query(`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS category_locked BOOLEAN DEFAULT FALSE;`)
   .catch(e => console.error('campaign_leads.category_locked migration error:', e.message));
 
+// Manual replies you send to a lead from Smartlead's inbox (MANUAL_REPLY_SENT).
+// Stored so your outbound manual messages show up in the contact's conversation.
+pool.query(`
+  CREATE TABLE IF NOT EXISTS manual_messages (
+    id            SERIAL PRIMARY KEY,
+    email         VARCHAR(255) NOT NULL REFERENCES contacts(email) ON UPDATE CASCADE ON DELETE CASCADE,
+    campaign_name VARCHAR(500),
+    campaign_id   INTEGER,
+    subject       TEXT,
+    body          TEXT,
+    message_id    VARCHAR(500) UNIQUE,
+    sent_at       TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+  );
+`).catch(e => console.error('manual_messages table creation error:', e.message));
+
 // Add cleaned-value columns (originals intact) and an auto-computed
 // personalization_status. Statements run in order (single query).
 pool.query(`
@@ -255,6 +271,18 @@ app.post('/webhook/smartlead', async (req, res) => {
             updated_at = NOW()
         `, [email, payload.campaign_id || null, payload.campaign_name || null]);
         break;
+      case 'MANUAL_REPLY_SENT': {
+        // Your outbound manual reply to the lead (email = to_email). Store it so it
+        // appears in the contact's conversation thread. No campaign_leads/category change.
+        const mbody = stripHtml(payload.email_body || '');
+        await pool.query(`
+          INSERT INTO manual_messages (email, campaign_name, campaign_id, subject, body, message_id, sent_at)
+          VALUES ($1,$2,$3,$4,$5,$6, COALESCE($7::timestamptz, NOW()))
+          ON CONFLICT (message_id) DO NOTHING
+        `, [email, payload.campaign_name || null, payload.campaign_id || null,
+            payload.subject || null, mbody, payload.message_id || null, payload.scheduled_time || null]);
+        break;
+      }
     }
 
     res.json({ ok: true, event: eventType, email });
@@ -262,22 +290,6 @@ app.post('/webhook/smartlead', async (req, res) => {
     console.error('Webhook error:', err);
     res.status(500).json({ error: err.message });
   }
-});
-
-// ── TEMPORARY debug capture ──────────────────────────────────────────────────
-// Captures raw webhook payloads in memory ONLY (no DB writes) so undocumented
-// events can be inspected. Point a webhook at POST /webhook/debug?token=... then
-// read them back from GET /webhook/debug?token=... . Safe to remove afterwards.
-const debugPayloads = [];
-app.post('/webhook/debug', (req, res) => {
-  if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
-  debugPayloads.unshift({ received_at: new Date().toISOString(), event_type: req.body?.event_type || null, body: req.body });
-  if (debugPayloads.length > 20) debugPayloads.length = 20;
-  res.json({ ok: true, captured: debugPayloads.length });
-});
-app.get('/webhook/debug', (req, res) => {
-  if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
-  res.json({ count: debugPayloads.length, payloads: debugPayloads });
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -671,8 +683,11 @@ app.get('/api/contacts/:email', auth, async (req, res) => {
     const tagsList = await pool.query(
       `SELECT t.id, t.name, t.color FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_email = $1 ORDER BY t.name`, [email]
     );
+    const manual = await pool.query(
+      `SELECT * FROM manual_messages WHERE email = $1 ORDER BY sent_at ASC NULLS LAST`, [email]
+    );
 
-    res.json({ contact: contact.rows[0], campaign_leads: leads.rows, campaign_activity: activity.rows, notes: notesList.rows, tags: tagsList.rows });
+    res.json({ contact: contact.rows[0], campaign_leads: leads.rows, campaign_activity: activity.rows, notes: notesList.rows, tags: tagsList.rows, manual_messages: manual.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

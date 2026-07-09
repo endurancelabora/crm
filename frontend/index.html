@@ -129,6 +129,7 @@
     .chat-bubble-wrap.reply { align-items: flex-start; }
     .chat-bubble { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
     .chat-bubble.sent { background: var(--accent); color: #fff; border-bottom-right-radius: 3px; }
+    .chat-bubble.manual { background: #059669; color: #fff; border-bottom-right-radius: 3px; }
     .chat-bubble.reply { background: var(--bg3); color: var(--text); border-bottom-left-radius: 3px; }
     .chat-meta { font-size: 10px; color: var(--text2); margin-top: 4px; }
 
@@ -1371,6 +1372,11 @@ function openChatModal(campName, d) {
   if (cl?.reply_message && !acts.some(a => a.reply_message)) {
     messages.push({ type:'reply', date: cl.replied_at, body: cl.reply_message });
   }
+  // Manual replies you sent to this lead in this campaign (outbound, green bubble).
+  (d.manual_messages || []).filter(mm => norm(mm.campaign_name) === norm(campName))
+    .forEach(mm => messages.push({ type:'manual', date: mm.sent_at, subject: mm.subject, body: mm.body }));
+  // Show the whole thread in chronological order.
+  messages.sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
 
   const html = `
   <div class="chat-overlay" id="chat-overlay">
@@ -1388,6 +1394,11 @@ function openChatModal(campName, d) {
           <div class="chat-bubble-wrap sent">
             <div class="chat-bubble sent">${m.subject ? `<div style="font-weight:600;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.25)">✉ ${m.subject.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>` : ''}${m.body ? m.body.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '(sin cuerpo)'}</div>
             <div class="chat-meta">Seq ${m.seq} · ${m.date ? fmtDate(m.date) : ''}${m.opens>0 ? ` · 👁 ${m.opens} apertura${m.opens!==1?'s':''}` : ''}${m.clicked ? ' · 🔗 Clic' : ''}</div>
+          </div>`;
+          if (m.type === 'manual') return `
+          <div class="chat-bubble-wrap sent">
+            <div class="chat-bubble manual">${m.subject ? `<div style="font-weight:600;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.25)">✉ ${m.subject.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>` : ''}${m.body ? m.body.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '(sin cuerpo)'}</div>
+            <div class="chat-meta">✍ Respuesta manual · ${m.date ? fmtDate(m.date) : ''}</div>
           </div>`;
           else return `
           <div class="chat-bubble-wrap reply">
