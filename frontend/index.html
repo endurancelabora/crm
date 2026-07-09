@@ -2243,7 +2243,7 @@ function bindCampaignEvents() {
     btn.addEventListener('click', async () => {
       const name = decodeURIComponent(btn.dataset.camp);
       const total = btn.dataset.total || '0';
-      if (!confirm(`¿Eliminar la campaña "${name}"?\n\nSe quitarán sus ${total} contacto(s) de esta campaña y su actividad. Los contactos NO se borran (siguen en otras campañas si aplica).\n\nEsta acción no se puede deshacer.`)) return;
+      if (!await uiConfirm(`¿Eliminar la campaña "${name}"?\n\nSe quitarán sus ${total} contacto(s) de esta campaña y su actividad. Los contactos NO se borran (siguen en otras campañas si aplica).\n\nEsta acción no se puede deshacer.`)) return;
       btn.textContent = 'Eliminando...'; btn.disabled = true;
       const res = await apiFetch(`/api/campaigns/${btn.dataset.camp}`, { method: 'DELETE' });
       if (res?.ok) {
@@ -3727,7 +3727,7 @@ async function deleteContact() {
   if (!email) return;
   const c = state.drawerData || {};
   const name = fmtName(c);
-  if (!confirm(`¿Eliminar el contacto "${name}" (${email})?\n\nSe borrará por completo: sus campañas, actividad, respuestas, notas y etiquetas.\n\nEsta acción no se puede deshacer.`)) return;
+  if (!await uiConfirm(`¿Eliminar el contacto "${name}" (${email})?\n\nSe borrará por completo: sus campañas, actividad, respuestas, notas y etiquetas.\n\nEsta acción no se puede deshacer.`)) return;
   const btn = document.getElementById('delete-contact-btn');
   if (btn) { btn.textContent = 'Eliminando...'; btn.disabled = true; }
   const res = await apiFetch(`/api/contacts/${encodeURIComponent(email)}`, { method: 'DELETE' });
@@ -3774,7 +3774,7 @@ function refreshDrawerUI() {
   tmp.innerHTML = renderDrawer();
   drawer.innerHTML = tmp.querySelector('#drawer').innerHTML;
   document.getElementById('close-drawer')?.addEventListener('click', closeDrawer);
-  document.getElementById('delete-contact-btn')?.addEventListener('click', deleteContact);
+  // delete-contact-btn is handled via delegated listener (see INIT) so it survives re-renders
   document.getElementById('edit-btn')?.addEventListener('click', () => { state.drawerEditing = true; refreshDrawerUI(); });
   document.getElementById('save-edit-btn')?.addEventListener('click', saveContactEdit);
   document.getElementById('cancel-edit-btn')?.addEventListener('click', () => { state.drawerEditing = false; refreshDrawerUI(); });
@@ -3912,6 +3912,34 @@ async function exportData(campaignOverride, categoryOverride) {
     if (btn) { btn.disabled = false; btn.textContent = orig; }
   }
 }
+
+// In-app confirmation modal — replaces native confirm() (browsers can suppress it
+// after repeated dialogs). Returns a Promise<boolean>.
+function uiConfirm(message, okLabel = 'Eliminar') {
+  return new Promise(resolve => {
+    const root = document.createElement('div');
+    root.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:99999;padding:20px';
+    root.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;max-width:440px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+        <div style="font-size:14px;line-height:1.6;color:var(--text);white-space:pre-wrap;margin-bottom:20px">${String(message).replace(/</g,'&lt;')}</div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+          <button class="btn" data-act="ok" style="background:#dc2626;border-color:#dc2626;color:#fff">${okLabel}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(root);
+    const done = v => { root.remove(); resolve(v); };
+    root.querySelector('[data-act="ok"]').onclick = () => done(true);
+    root.querySelector('[data-act="cancel"]').onclick = () => done(false);
+    root.onclick = e => { if (e.target === root) done(false); };
+  });
+}
+
+// Delegated click for the drawer delete button — bulletproof against any re-render
+// path (works even if the per-render binding is missed).
+document.addEventListener('click', e => {
+  if (e.target.closest && e.target.closest('#delete-contact-btn')) { e.preventDefault(); deleteContact(); }
+});
 
 // ═══════════════════════════════════════════════════════════
 // INIT
