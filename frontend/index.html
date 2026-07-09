@@ -931,7 +931,7 @@ function renderContacts() {
               case 'tags':           return `<td>${tags.length ? tags.map(t=>renderTagPill(t)).join(' ') : '—'}</td>`;
               case 'last_activity':  return `<td style="color:var(--text2)">${fmtDate(c.last_activity)}</td>`;
               case 'email_col':      return `<td style="color:var(--text2);font-size:12px">${c.email}</td>`;
-              case 'flags':          return `<td>${c.no_contact?'<span class="badge badge-red">No contact</span>':''}${c.email_bounced?'<span class="badge badge-amber">Bounced</span>':''}</td>`;
+              case 'flags':          return `<td>${c.no_contact?'<span class="badge badge-red">Unsubscribed</span>':''}${c.email_bounced?'<span class="badge badge-amber">Bounced</span>':''}</td>`;
               default: return '<td>—</td>';
             }
           }).join('');
@@ -963,7 +963,7 @@ function renderStats() {
     <div class="stat-card"><div class="stat-number">${parseInt(s.total_campaigns||0).toLocaleString()}</div><div class="stat-label">Campaigns</div></div>
     <div class="stat-card green"><div class="stat-number">${parseInt(s.total_ready||0).toLocaleString()}</div><div class="stat-label">Ready (personalizar)</div></div>
     <div class="stat-card"><div class="stat-number">${parseInt(s.total_generic||0).toLocaleString()}</div><div class="stat-label">Generic</div></div>
-    <div class="stat-card amber"><div class="stat-number">${parseInt(s.no_contact||0).toLocaleString()}</div><div class="stat-label">No contact</div></div>
+    <div class="stat-card amber"><div class="stat-number">${parseInt(s.no_contact||0).toLocaleString()}</div><div class="stat-label">Unsubscribed</div></div>
     <div class="stat-card red"><div class="stat-number">${parseInt(s.bounced||0).toLocaleString()}</div><div class="stat-label">Bounced</div></div>
   </div>`;
 }
@@ -1226,7 +1226,7 @@ function renderDrawer() {
         ${edit
           ? `<input class="edit-input" id="edit-email-input" value="${(c.email||'').replace(/"/g,'&quot;')}" style="margin-top:4px;font-size:13px;width:240px" placeholder="email@dominio.com">`
           : `<div class="drawer-email">${c.email}</div>`}
-        ${c.no_contact ? '<span class="badge badge-red" style="margin-top:6px">No contact</span>' : ''}
+        ${c.no_contact ? '<span class="badge badge-red" style="margin-top:6px">Unsubscribed</span>' : ''}
         ${c.email_bounced ? '<span class="badge badge-amber" style="margin-top:6px;margin-left:4px">Bounced</span>' : ''}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
