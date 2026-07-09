@@ -62,6 +62,12 @@ pool.query(`
   );
 `).catch(e => console.error('manual_messages table creation error:', e.message));
 
+// Subject lines from the webhooks (EMAIL_SENT / EMAIL_REPLY), shown in the thread.
+pool.query(`ALTER TABLE campaign_activity ADD COLUMN IF NOT EXISTS subject TEXT;`)
+  .catch(e => console.error('campaign_activity.subject migration error:', e.message));
+pool.query(`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS reply_subject TEXT;`)
+  .catch(e => console.error('campaign_leads.reply_subject migration error:', e.message));
+
 // Add cleaned-value columns (originals intact) and an auto-computed
 // personalization_status. Statements run in order (single query).
 pool.query(`
@@ -150,22 +156,11 @@ function extractEmail(s) {
 // attribute to a real campaign), so they still land in a contact's history.
 const UNTRACKED_CAMPAIGN = 'Sin campaña';
 
-// TEMPORARY: keep the last raw webhook payloads in memory to inspect undocumented
-// event shapes. Read via GET /webhook/recent?token=... . Safe to remove afterwards.
-const recentWebhooks = [];
-app.get('/webhook/recent', (req, res) => {
-  if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
-  res.json({ count: recentWebhooks.length, payloads: recentWebhooks });
-});
-
 app.post('/webhook/smartlead', async (req, res) => {
   if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
 
   const payload = req.body;
   const eventType = payload.event_type;
-
-  recentWebhooks.unshift({ received_at: new Date().toISOString(), event_type: eventType, body: payload });
-  if (recentWebhooks.length > 30) recentWebhooks.length = 30;
 
   try {
     // Untracked replies have a different shape: no lead_email/campaign, and the
@@ -181,16 +176,17 @@ app.post('/webhook/smartlead', async (req, res) => {
       await pool.query(
         `INSERT INTO contacts (email) VALUES ($1) ON CONFLICT (email) DO NOTHING`, [leadEmail]);
       await pool.query(`
-        INSERT INTO campaign_leads (email, campaign_name, lead_category, reply_message, replied_at)
-        VALUES ($1, $2, 'Replied', $3, $4)
+        INSERT INTO campaign_leads (email, campaign_name, lead_category, reply_message, reply_subject, replied_at)
+        VALUES ($1, $2, 'Replied', $3, $4, $5)
         ON CONFLICT (email, campaign_name) DO UPDATE SET
           reply_message = EXCLUDED.reply_message,
+          reply_subject = EXCLUDED.reply_subject,
           replied_at    = EXCLUDED.replied_at,
           lead_category = CASE WHEN campaign_leads.category_locked
                                  OR campaign_leads.lead_category IN ('Interested','Comprado')
                           THEN campaign_leads.lead_category ELSE 'Replied' END,
           updated_at    = NOW()
-      `, [leadEmail, UNTRACKED_CAMPAIGN, msg, repliedAt]);
+      `, [leadEmail, UNTRACKED_CAMPAIGN, msg, payload.subject || null, repliedAt]);
       return res.json({ ok: true, event: eventType, email: leadEmail });
     }
 
@@ -247,15 +243,20 @@ app.post('/webhook/smartlead', async (req, res) => {
         const replyMsg = payload.reply_message || {};
         const msg = stripHtml(replyMsg.html || payload.reply_body || '');
         const repliedAt = payload.time_replied || payload.event_timestamp || null;
+        // Smartlead already sends the category with the reply; use it (fallback "Replied").
+        const cat = payload.reply_category || 'Replied';
         await pool.query(`
-          INSERT INTO campaign_leads (email, campaign_id, campaign_name, lead_category, reply_message, replied_at)
-          VALUES ($1,$2,$3,'Replied',$4,$5)
+          INSERT INTO campaign_leads (email, campaign_id, campaign_name, lead_category, reply_message, reply_subject, replied_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7)
           ON CONFLICT (email, campaign_name) DO UPDATE SET
-            reply_message = CASE WHEN campaign_leads.lead_category = 'Interested'
-                            THEN campaign_leads.reply_message ELSE EXCLUDED.reply_message END,
+            lead_category = CASE WHEN campaign_leads.category_locked THEN campaign_leads.lead_category
+                                 WHEN ${catRankSQL('EXCLUDED.lead_category')} > ${catRankSQL('campaign_leads.lead_category')}
+                                 THEN EXCLUDED.lead_category ELSE campaign_leads.lead_category END,
+            reply_message = EXCLUDED.reply_message,
+            reply_subject = EXCLUDED.reply_subject,
             replied_at    = EXCLUDED.replied_at,
             updated_at    = NOW()
-        `, [email, payload.campaign_id || null, payload.campaign_name || null, msg, repliedAt]);
+        `, [email, payload.campaign_id || null, payload.campaign_name || null, cat, msg, payload.subject || null, repliedAt]);
         break;
       }
       case 'EMAIL_BOUNCE':
@@ -264,13 +265,30 @@ app.post('/webhook/smartlead', async (req, res) => {
       case 'LEAD_UNSUBSCRIBED':
         await pool.query(`UPDATE contacts SET no_contact = TRUE, updated_at = NOW() WHERE email = $1`, [email]);
         break;
-      case 'EMAIL_SENT':
+      case 'EMAIL_SENT': {
         await pool.query(`
           INSERT INTO campaign_leads (email, campaign_id, campaign_name, lead_category)
           VALUES ($1,$2,$3,'Sent')
           ON CONFLICT (email, campaign_name) DO NOTHING
         `, [email, payload.campaign_id || null, payload.campaign_name || null]);
+        // Store the actual sent email so it shows in the conversation thread.
+        const sm = payload.sent_message || {};
+        const sentBody = stripHtml(sm.html || payload.sent_message_body || '');
+        const sentSubject = payload.subject || payload.custom_subject || null;
+        const seq = String(payload.sequence_number ?? '');
+        const sentAt = payload.time_sent || payload.event_timestamp || null;
+        if (seq) {
+          await pool.query(`
+            INSERT INTO campaign_activity (email, campaign_name, sequence_number, sent_at, sent_email_body, subject)
+            VALUES ($1,$2,$3, COALESCE($4::timestamptz, NOW()), $5, $6)
+            ON CONFLICT (email, campaign_name, sequence_number) DO UPDATE SET
+              sent_at         = COALESCE(campaign_activity.sent_at, EXCLUDED.sent_at),
+              sent_email_body = COALESCE(EXCLUDED.sent_email_body, campaign_activity.sent_email_body),
+              subject         = COALESCE(EXCLUDED.subject, campaign_activity.subject)
+          `, [email, payload.campaign_name || null, seq, sentAt, sentBody, sentSubject]);
+        }
         break;
+      }
       case 'EMAIL_OPEN':
         await pool.query(`
           INSERT INTO campaign_leads (email, campaign_id, campaign_name, lead_category)
