@@ -372,6 +372,7 @@ let state = {
   selectedCampaigns: [], selectedCategories: [],
   campaigns: [], stats: null, tags: [], categories: [],
   activityItems: [], activitySummary: { sent:0, opened:0, reply:0 }, activityFrom: '', activityTo: '', activityCampaign: '', activityLoading: false, activityCapped: false,
+  activityColOrder: null, activityVisibleCols: null, activityColOrderInit: false, activitySort: 'ts', activitySortDir: 'DESC', activityColFilters: {},
   drawerEmail: null, drawerData: null, drawerTags: [],
   drawerEditing: false,
   sort_by: 'email', sort_dir: 'ASC', limit: 50,
@@ -3406,9 +3407,9 @@ function bindNamesEvents() {
   });
 }
 
-// ─── Actividad tab: daily feed of sends / opens / replies ──────────────────────
+// ─── Actividad tab: daily feed with sortable / hideable / filterable columns ────
 function esc(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function escAttr(s) { return (s == null ? '' : String(s)).replace(/"/g,'&quot;'); }
+function escAttr(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 function todayISO() { return new Date().toLocaleDateString('en-CA'); } // YYYY-MM-DD (local)
 function fmtDateTime(d) {
   if (!d) return '—';
@@ -3420,57 +3421,136 @@ function actTile(label, n, color) {
     <div style="font-size:12px;color:var(--text2)">${label}</div></div>`;
 }
 
+const ACTIVITY_COLUMNS = [
+  { key:'ts',            label:'Fecha',     filterable:false },
+  { key:'type',          label:'Tipo' },
+  { key:'contact',       label:'Contacto' },
+  { key:'company',       label:'Empresa' },
+  { key:'campaign_name', label:'Campaña' },
+  { key:'seq',           label:'Secuencia' },
+  { key:'subject',       label:'Asunto' },
+];
+const ACT_DEFAULT_COLS = ['ts','type','contact','company','campaign_name','subject'];
+function loadActCols() {
+  try { const s = JSON.parse(localStorage.getItem('crm_act_col_order'));
+    if (s && s.length) { const map = Object.fromEntries(ACTIVITY_COLUMNS.map(c=>[c.key,c]));
+      const o = s.map(k=>map[k]).filter(Boolean); ACTIVITY_COLUMNS.forEach(c=>{ if(!s.includes(c.key)) o.push(c); }); return o; } } catch(_){}
+  return [...ACTIVITY_COLUMNS];
+}
+function saveActCols(a) { localStorage.setItem('crm_act_col_order', JSON.stringify(a.map(c=>c.key))); }
+function loadActVisible() { try { return new Set(JSON.parse(localStorage.getItem('crm_act_visible')) || ACT_DEFAULT_COLS); } catch(_){ return new Set(ACT_DEFAULT_COLS); } }
+function saveActVisible(s) { localStorage.setItem('crm_act_visible', JSON.stringify([...s])); }
+
+function actCellValue(it, key) {
+  switch (key) {
+    case 'ts': return it.ts;
+    case 'type': return it.type==='sent'?'Enviado':it.type==='opened'?'Abrió':'Respondió';
+    case 'contact': return [it.first_name,it.last_name].filter(Boolean).join(' ') || it.email;
+    case 'company': return it.company_cleaned || it.company || '';
+    case 'campaign_name': return it.campaign_name || '';
+    case 'seq': return it.seq || '';
+    case 'subject': return it.subject || '';
+    default: return '';
+  }
+}
+function actColValues(key) {
+  const v = new Set();
+  (state.activityItems||[]).forEach(it => { const s = String(actCellValue(it,key)); if (s) v.add(s); });
+  return [...v].sort((a,b)=>a.localeCompare(b));
+}
+function getActivityRows() {
+  let rows = state.activityItems || [];
+  const filters = state.activityColFilters || {};
+  Object.keys(filters).forEach(key => { const set = filters[key]; if (set && set.size) rows = rows.filter(it => set.has(String(actCellValue(it,key)))); });
+  const sk = state.activitySort || 'ts', dir = state.activitySortDir==='ASC' ? 1 : -1;
+  rows = [...rows].sort((a,b) => {
+    if (sk === 'ts') return (new Date(a.ts||0) - new Date(b.ts||0)) * dir;
+    const va = String(actCellValue(a,sk)).toLowerCase(), vb = String(actCellValue(b,sk)).toLowerCase();
+    return va < vb ? -1*dir : va > vb ? 1*dir : 0;
+  });
+  return rows;
+}
+function actSortIcon(key) { return state.activitySort===key ? (state.activitySortDir==='ASC'?' ▲':' ▼') : ' ⇅'; }
+
 function renderActivity() {
   if (!state.activityFrom) { state.activityFrom = todayISO(); state.activityTo = todayISO(); }
-  const s = state.activitySummary || { sent:0, opened:0, reply:0 };
-  const campOpts = ['<option value="">Todas las campañas</option>']
-    .concat((state.campaigns||[]).map(c => `<option value="${escAttr(c.campaign_name)}" ${state.activityCampaign===c.campaign_name?'selected':''}>${esc(c.campaign_name)}</option>`)).join('');
+  if (!state.activityColOrderInit) { state.activityColOrder = loadActCols(); state.activityVisibleCols = loadActVisible(); state.activityColOrderInit = true; }
+  const cols = state.activityColOrder.filter(c => state.activityVisibleCols.has(c.key));
+  const rows = getActivityRows();
+
+  const filterButtons = cols.filter(c => c.filterable !== false).map(c => {
+    const active = state.activityColFilters[c.key]?.size || 0;
+    const vals = actColValues(c.key);
+    return `<div class="panel-wrap">
+      <button class="btn btn-ghost ms-trigger act-filter-btn" id="act-fbtn-${c.key}" data-key="${c.key}">${c.label} ${active?`<span class="ms-count">${active}</span>`:'▾'}</button>
+      <div class="dropdown-panel hidden" id="act-fpanel-${c.key}" style="min-width:220px;left:0;right:auto">
+        <div class="panel-title">${c.label}</div>
+        <input type="text" class="act-fsearch" placeholder="🔍 Buscar..." style="width:100%;box-sizing:border-box;margin-bottom:8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text);font-size:12px;outline:none">
+        <div style="max-height:240px;overflow:auto">
+          ${vals.length ? vals.map(v => `<label class="ms-item act-fitem"><input type="checkbox" class="act-fval" data-key="${c.key}" value="${escAttr(v)}" ${state.activityColFilters[c.key]?.has(v)?'checked':''}> <span>${esc(v)}</span></label>`).join('') : '<div style="color:var(--text2);font-size:12px">Sin valores</div>'}
+        </div>
+        ${active ? `<button class="btn btn-ghost act-fclear" data-key="${c.key}" style="margin-top:8px;width:100%">Limpiar (${active})</button>` : ''}
+      </div></div>`;
+  }).join('');
+  const anyFilter = Object.keys(state.activityColFilters).some(k => state.activityColFilters[k]?.size);
+
+  const colPanel = `<div class="panel-wrap">
+    <button class="btn btn-ghost" id="act-columns-btn">⊞ Columnas</button>
+    <div class="dropdown-panel hidden" id="act-columns-panel" style="min-width:220px">
+      <div class="panel-title">Columnas visibles — arrastra para reordenar</div>
+      <div id="act-col-list">
+        ${state.activityColOrder.map(c => `<div class="col-check-item" draggable="true" data-col-key="${c.key}" style="display:flex;gap:6px;align-items:center">
+          <span class="drag-handle">⠿</span>
+          <input type="checkbox" data-col="${c.key}" ${state.activityVisibleCols.has(c.key)?'checked':''}>
+          <span style="flex:1">${c.label}</span></div>`).join('')}
+      </div>
+    </div></div>`;
+
   return `
-  <div class="page-header">
-    <div>
-      <div class="page-title">Actividad</div>
-      <div class="page-subtitle">Lo que se envió, se abrió y las respuestas — por día</div>
-    </div>
-  </div>
+  <div class="page-header"><div>
+    <div class="page-title">Actividad</div>
+    <div class="page-subtitle">Lo que se envió, se abrió y las respuestas — por día</div>
+  </div></div>
   <div class="filters" style="gap:10px;flex-wrap:wrap;align-items:center">
     <button class="btn btn-ghost" id="act-today">Hoy</button>
     <button class="btn btn-ghost" id="act-7d">Últimos 7 días</button>
     <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Del <input class="filter-input" type="date" id="act-from" value="${state.activityFrom}" style="width:150px"></label>
     <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">al <input class="filter-input" type="date" id="act-to" value="${state.activityTo||state.activityFrom}" style="width:150px"></label>
-    <select class="filter-input" id="act-campaign" style="max-width:280px">${campOpts}</select>
+    ${colPanel}
   </div>
-  <div style="display:flex;gap:12px;padding:0 32px 14px;flex-wrap:wrap">
-    ${actTile('📤 Enviados', s.sent, 'var(--accent-light)')}
-    ${actTile('👁 Aperturas', s.opened, '#a78bfa')}
-    ${actTile('↩ Respuestas', s.reply, '#4ade80')}
+  <div class="filters" style="gap:8px;flex-wrap:wrap;align-items:center">
+    <span style="font-size:12px;color:var(--text2)">Filtros:</span>
+    ${filterButtons}
+    ${anyFilter ? `<button class="btn btn-ghost" id="act-clear-filters">✕ Limpiar filtros</button>` : ''}
   </div>
-  <div id="activity-body" style="padding:0 32px 32px">${renderActivityBody()}</div>`;
+  <div id="activity-summary" style="display:flex;gap:12px;padding:0 32px 14px;flex-wrap:wrap">${renderActivitySummary(rows)}</div>
+  <div id="activity-body" style="padding:0 32px 32px">${renderActivityBody(cols, rows)}</div>`;
 }
 
-function renderActivityBody() {
+function renderActivitySummary(rows) {
+  rows = rows || getActivityRows();
+  const c = { sent:0, opened:0, reply:0 };
+  rows.forEach(r => { c[r.type] = (c[r.type]||0) + 1; });
+  return actTile('📤 Enviados', c.sent, 'var(--accent-light)') + actTile('👁 Aperturas', c.opened, '#a78bfa') + actTile('↩ Respuestas', c.reply, '#4ade80');
+}
+
+function renderActivityBody(cols, rows) {
   if (state.activityLoading) return '<div style="color:var(--text2);padding:24px;text-align:center">Cargando…</div>';
-  const items = state.activityItems || [];
-  if (!items.length) return '<div style="color:var(--text2);padding:24px;text-align:center">Sin actividad en este rango.</div>';
-  const rows = items.map(it => {
-    const name = [it.first_name, it.last_name].filter(Boolean).join(' ') || it.email;
-    const comp = it.company_cleaned || it.company || '';
-    const tag = it.type==='sent' ? '<span style="color:var(--accent-light)">📤 Enviado</span>'
-              : it.type==='opened' ? '<span style="color:#a78bfa">👁 Abrió</span>'
-              : '<span style="color:#4ade80">↩ Respondió</span>';
-    const seq = it.seq ? ` · seq ${esc(it.seq)}` : '';
-    return `<tr class="act-row" data-email="${escAttr(it.email)}" style="cursor:pointer">
-      <td style="white-space:nowrap;color:var(--text2);font-size:12px">${fmtDateTime(it.ts)}</td>
-      <td style="white-space:nowrap;font-size:12px">${tag}${seq}</td>
-      <td><div style="font-weight:600">${esc(name)}</div><div style="font-size:11px;color:var(--text2)">${esc(it.email)}</div></td>
-      <td style="color:var(--text2);font-size:12px">${esc(comp||'—')}</td>
-      <td style="font-size:12px">${esc(it.campaign_name||'—')}</td>
-      <td style="font-size:12px">${esc(it.subject||'—')}</td>
-    </tr>`;
+  cols = cols || state.activityColOrder.filter(c => state.activityVisibleCols.has(c.key));
+  rows = rows || getActivityRows();
+  if (!rows.length) return '<div style="color:var(--text2);padding:24px;text-align:center">Sin actividad en este rango.</div>';
+  const head = cols.map(c => `<th class="sortable act-sort" data-key="${c.key}" style="cursor:pointer;white-space:nowrap">${c.label}${actSortIcon(c.key)}</th>`).join('');
+  const body = rows.map(it => {
+    const tds = cols.map(c => {
+      if (c.key==='ts') return `<td style="white-space:nowrap;color:var(--text2);font-size:12px">${fmtDateTime(it.ts)}</td>`;
+      if (c.key==='type') { const t = it.type==='sent'?'<span style="color:var(--accent-light)">📤 Enviado</span>':it.type==='opened'?'<span style="color:#a78bfa">👁 Abrió</span>':'<span style="color:#4ade80">↩ Respondió</span>'; return `<td style="white-space:nowrap;font-size:12px">${t}</td>`; }
+      if (c.key==='contact') { const name = [it.first_name,it.last_name].filter(Boolean).join(' ') || it.email; return `<td><div style="font-weight:600">${esc(name)}</div><div style="font-size:11px;color:var(--text2)">${esc(it.email)}</div></td>`; }
+      return `<td style="font-size:12px">${esc(actCellValue(it,c.key)||'—')}</td>`;
+    }).join('');
+    return `<tr class="act-row" data-email="${escAttr(it.email)}" style="cursor:pointer">${tds}</tr>`;
   }).join('');
-  return `<div class="table-wrap"><table class="table"><thead><tr>
-      <th style="width:120px">Fecha</th><th style="width:130px">Tipo</th><th>Contacto</th><th>Empresa</th><th>Campaña</th><th>Asunto</th>
-    </tr></thead><tbody>${rows}</tbody></table></div>
-    ${state.activityCapped ? '<div style="color:var(--text2);font-size:11px;padding:10px 0">Mostrando los primeros 500. Acota el rango o filtra por campaña para ver menos.</div>' : ''}`;
+  return `<div class="table-wrap"><table class="table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    ${state.activityCapped ? '<div style="color:var(--text2);font-size:11px;padding:10px 0">Mostrando los primeros 500 eventos del rango. Acota las fechas para ver menos.</div>' : ''}`;
 }
 
 async function loadActivity() {
@@ -3478,7 +3558,6 @@ async function loadActivity() {
   state.activityLoading = true;
   const box = document.getElementById('activity-body'); if (box) box.innerHTML = renderActivityBody();
   const params = new URLSearchParams({ from: state.activityFrom, to: state.activityTo || state.activityFrom });
-  if (state.activityCampaign) params.set('campaign', state.activityCampaign);
   const data = await apiFetch('/api/activity?' + params);
   state.activityItems = data?.items || [];
   state.activitySummary = data?.summary || { sent:0, opened:0, reply:0 };
@@ -3488,12 +3567,75 @@ async function loadActivity() {
   if (main && state.view === 'activity') { main.innerHTML = renderActivity(); bindActivityEvents(); }
 }
 
+// Re-render only the summary + table (keeps open filter dropdowns intact).
+function refreshActivityData() {
+  const rows = getActivityRows();
+  const s = document.getElementById('activity-summary'); if (s) s.innerHTML = renderActivitySummary(rows);
+  const b = document.getElementById('activity-body'); if (b) b.innerHTML = renderActivityBody(null, rows);
+  document.querySelectorAll('.act-row').forEach(r => r.addEventListener('click', () => openDrawer(r.dataset.email)));
+}
+// Full re-render of the view (for sort / column changes).
+function refreshActivityFull() { const m = document.getElementById('main-content'); if (m && state.view==='activity') { m.innerHTML = renderActivity(); bindActivityEvents(); } }
+function updateActFilterBadge(key) {
+  const btn = document.getElementById('act-fbtn-'+key); if (!btn) return;
+  const n = state.activityColFilters[key]?.size || 0;
+  const label = (state.activityColOrder.find(c=>c.key===key)?.label) || key;
+  btn.innerHTML = `${label} ${n?`<span class="ms-count">${n}</span>`:'▾'}`;
+}
+
 function bindActivityEvents() {
+  // Date range (server reload)
   document.getElementById('act-today')?.addEventListener('click', () => { state.activityFrom = todayISO(); state.activityTo = todayISO(); loadActivity(); });
   document.getElementById('act-7d')?.addEventListener('click', () => { const d = new Date(); d.setDate(d.getDate()-6); state.activityFrom = d.toLocaleDateString('en-CA'); state.activityTo = todayISO(); loadActivity(); });
   document.getElementById('act-from')?.addEventListener('change', e => { state.activityFrom = e.target.value; loadActivity(); });
   document.getElementById('act-to')?.addEventListener('change', e => { state.activityTo = e.target.value; loadActivity(); });
-  document.getElementById('act-campaign')?.addEventListener('change', e => { state.activityCampaign = e.target.value; loadActivity(); });
+  // Sort (client)
+  document.querySelectorAll('.act-sort').forEach(th => th.addEventListener('click', () => {
+    const k = th.dataset.key;
+    if (state.activitySort === k) state.activitySortDir = state.activitySortDir==='ASC'?'DESC':'ASC';
+    else { state.activitySort = k; state.activitySortDir = k==='ts'?'DESC':'ASC'; }
+    refreshActivityFull();
+  }));
+  // Per-column value filters (client)
+  document.querySelectorAll('.act-filter-btn').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); togglePanel(btn.id, 'act-fpanel-'+btn.dataset.key); }));
+  document.querySelectorAll('.act-fsearch').forEach(inp => inp.addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    inp.closest('.dropdown-panel').querySelectorAll('.act-fitem').forEach(it => { it.style.display = it.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+  }));
+  document.querySelectorAll('.act-fval').forEach(cb => cb.addEventListener('change', () => {
+    const key = cb.dataset.key;
+    const set = state.activityColFilters[key] || (state.activityColFilters[key] = new Set());
+    if (cb.checked) set.add(cb.value); else set.delete(cb.value);
+    if (!set.size) delete state.activityColFilters[key];
+    updateActFilterBadge(key);
+    refreshActivityData();
+  }));
+  document.querySelectorAll('.act-fclear').forEach(btn => btn.addEventListener('click', () => { delete state.activityColFilters[btn.dataset.key]; refreshActivityFull(); }));
+  document.getElementById('act-clear-filters')?.addEventListener('click', () => { state.activityColFilters = {}; refreshActivityFull(); });
+  // Columns show/hide
+  document.getElementById('act-columns-btn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('act-columns-btn', 'act-columns-panel'); });
+  document.querySelectorAll('#act-col-list input[data-col]').forEach(cb => cb.addEventListener('change', () => {
+    if (cb.checked) state.activityVisibleCols.add(cb.dataset.col); else state.activityVisibleCols.delete(cb.dataset.col);
+    saveActVisible(state.activityVisibleCols); refreshActivityFull();
+  }));
+  // Columns drag reorder
+  let dk = null;
+  document.querySelectorAll('#act-col-list .col-check-item[draggable="true"]').forEach(item => {
+    item.addEventListener('dragstart', () => { dk = item.dataset.colKey; });
+    item.addEventListener('dragover', e => { e.preventDefault(); document.querySelectorAll('#act-col-list .col-check-item').forEach(i=>i.classList.remove('drag-over')); item.classList.add('drag-over'); });
+    item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+    item.addEventListener('drop', e => {
+      e.preventDefault(); item.classList.remove('drag-over');
+      if (!dk || dk === item.dataset.colKey) return;
+      const from = state.activityColOrder.findIndex(c=>c.key===dk);
+      const to = state.activityColOrder.findIndex(c=>c.key===item.dataset.colKey);
+      if (from<0||to<0) return;
+      const m = state.activityColOrder.splice(from,1)[0];
+      state.activityColOrder.splice(to,0,m);
+      saveActCols(state.activityColOrder); refreshActivityFull();
+    });
+  });
+  // Row → open contact
   document.querySelectorAll('.act-row').forEach(r => r.addEventListener('click', () => openDrawer(r.dataset.email)));
 }
 
