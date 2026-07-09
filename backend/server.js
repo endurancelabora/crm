@@ -700,8 +700,17 @@ app.get('/api/contacts/:email', auth, async (req, res) => {
     const contact = await pool.query(`SELECT * FROM contacts WHERE email = $1`, [email]);
     if (!contact.rows.length) return res.status(404).json({ error: 'Not found' });
 
+    // Order campaigns by most recent activity (latest reply OR latest sent email),
+    // so the campaign a contact is actively in shows first, consistently.
     const leads = await pool.query(
-      `SELECT * FROM campaign_leads WHERE email = $1 ORDER BY replied_at DESC NULLS LAST`, [email]
+      `SELECT cl.* FROM campaign_leads cl
+       WHERE cl.email = $1
+       ORDER BY GREATEST(
+                  COALESCE(cl.replied_at, 'epoch'::timestamptz),
+                  COALESCE((SELECT MAX(ca.sent_at) FROM campaign_activity ca
+                            WHERE ca.email = cl.email AND ca.campaign_name = cl.campaign_name), 'epoch'::timestamptz)
+                ) DESC,
+                cl.campaign_name ASC`, [email]
     );
     const activity = await pool.query(
       `SELECT * FROM campaign_activity WHERE email = $1 ORDER BY sent_at DESC NULLS LAST`, [email]
