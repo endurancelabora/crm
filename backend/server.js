@@ -948,7 +948,21 @@ app.get('/api/campaigns', auth, async (req, res) => {
   }
 });
 
-// PATCH /api/campaigns/:name — rename campaign across all tables (transactional)
+// Category priority so a merge never drops the more meaningful state. Higher wins.
+function catRankSQL(col) {
+  return `CASE lower(coalesce(${col},''))
+    WHEN '' THEN 0 WHEN 'comprado' THEN 100 WHEN 'interested' THEN 90
+    WHEN 'meeting booked' THEN 88 WHEN 'meeting request' THEN 86
+    WHEN 'information request' THEN 80 WHEN 'replied' THEN 70
+    WHEN 'do not contact' THEN 50 WHEN 'not interested' THEN 48 WHEN 'wrong person' THEN 46
+    WHEN 'out of office' THEN 30 WHEN 'opened' THEN 25 WHEN 'sent' THEN 15
+    WHEN 'sender originated bounce' THEN 12 WHEN 'uncategorizable by ai' THEN 8 ELSE 5 END`;
+}
+
+// PATCH /api/campaigns/:name — rename a campaign, OR merge it into an existing one
+// when the target name already exists (transactional). For contacts present in both
+// campaigns we keep a single row with the best category (respecting a manual lock)
+// plus any reply; duplicates are removed.
 app.patch('/api/campaigns/:name', auth, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -956,13 +970,55 @@ app.patch('/api/campaigns/:name', auth, async (req, res) => {
     const { new_name } = req.body;
     if (!new_name || !new_name.trim()) return res.status(400).json({ error: 'new_name required' });
     const n = new_name.trim();
+    // Guard: merging a campaign into itself would delete every row. No-op instead.
+    if (n === oldName) return res.json({ ok: true, old_name: oldName, new_name: n, updated: 0 });
 
     await client.query('BEGIN');
-    const r1 = await client.query(`UPDATE campaign_leads    SET campaign_name = $1 WHERE campaign_name = $2`, [n, oldName]);
+    // 1) Merge overlapping leads into the target, keeping the best fields.
+    await client.query(`
+      UPDATE campaign_leads t SET
+        lead_category = CASE WHEN t.category_locked THEN t.lead_category
+                             WHEN ${catRankSQL('s.lead_category')} > ${catRankSQL('t.lead_category')} THEN s.lead_category
+                             ELSE t.lead_category END,
+        category_locked = (t.category_locked OR s.category_locked),
+        reply_message = COALESCE(t.reply_message, s.reply_message),
+        replied_at    = COALESCE(t.replied_at, s.replied_at),
+        sentiment     = COALESCE(t.sentiment, s.sentiment),
+        history       = COALESCE(t.history, s.history),
+        updated_at    = NOW()
+      FROM campaign_leads s
+      WHERE t.campaign_name = $1 AND s.campaign_name = $2 AND s.email = t.email`, [n, oldName]);
+    // 2) Drop the now-merged duplicate rows, 3) rename the rest.
+    await client.query(`DELETE FROM campaign_leads s WHERE s.campaign_name = $2
+      AND EXISTS (SELECT 1 FROM campaign_leads t WHERE t.campaign_name = $1 AND t.email = s.email)`, [n, oldName]);
+    const r1 = await client.query(`UPDATE campaign_leads SET campaign_name = $1 WHERE campaign_name = $2`, [n, oldName]);
+
+    await client.query(`DELETE FROM campaign_activity s WHERE s.campaign_name = $2
+      AND EXISTS (SELECT 1 FROM campaign_activity t WHERE t.campaign_name = $1 AND t.email = s.email
+                  AND t.sequence_number IS NOT DISTINCT FROM s.sequence_number)`, [n, oldName]);
     const r2 = await client.query(`UPDATE campaign_activity SET campaign_name = $1 WHERE campaign_name = $2`, [n, oldName]);
     await client.query('COMMIT');
 
     res.json({ ok: true, old_name: oldName, new_name: n, updated: r1.rowCount + r2.rowCount });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/campaigns/:name — remove a campaign's leads + activity (e.g. junk from
+// webhook tests). Contacts are left intact since they may belong to other campaigns.
+app.delete('/api/campaigns/:name', auth, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const name = decodeURIComponent(req.params.name);
+    await client.query('BEGIN');
+    const a = await client.query(`DELETE FROM campaign_activity WHERE campaign_name = $1`, [name]);
+    const l = await client.query(`DELETE FROM campaign_leads    WHERE campaign_name = $1`, [name]);
+    await client.query('COMMIT');
+    res.json({ ok: true, name, leads_deleted: l.rowCount, activity_deleted: a.rowCount });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     res.status(500).json({ error: err.message });

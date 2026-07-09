@@ -1191,6 +1191,7 @@ function renderCampaigns() {
           <td><div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-ghost btn-camp-replies" data-camp="${encodeURIComponent(c.campaign_name)}">💬 Ver respuestas</button>
             <button class="btn btn-green btn-export-camp" data-campaign="${c.campaign_name}" data-cat="Interested">⬇ Export interested</button>
+            <button class="btn btn-ghost btn-camp-delete" data-camp="${encodeURIComponent(c.campaign_name)}" data-total="${c.total_contacts}" style="color:#f87171">🗑 Eliminar</button>
           </div></td>
         </tr>`).join('') : `<tr><td colspan="4"><div class="empty"><div class="empty-icon">📣</div><div class="empty-text">No campaigns yet</div></div></td></tr>`}
       </tbody>
@@ -2227,13 +2228,28 @@ function bindCampaignEvents() {
         method: 'PATCH', body: JSON.stringify({ new_name: newName })
       });
       if (res?.ok) {
-        state.campaigns = state.campaigns.map(c =>
-          c.campaign_name === originalName ? { ...c, campaign_name: newName } : c
-        );
-        render(); bindApp();
+        // Reload from server — a rename may have merged into an existing campaign,
+        // so recompute the aggregated list rather than patching it locally.
+        loadCampaignsOnly();
       } else {
         btn.textContent = 'Save'; btn.disabled = false;
         alert('Error renaming campaign: ' + (res?.error || 'unknown'));
+      }
+    });
+  });
+
+  document.querySelectorAll('.btn-camp-delete').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = decodeURIComponent(btn.dataset.camp);
+      const total = btn.dataset.total || '0';
+      if (!confirm(`¿Eliminar la campaña "${name}"?\n\nSe quitarán sus ${total} contacto(s) de esta campaña y su actividad. Los contactos NO se borran (siguen en otras campañas si aplica).\n\nEsta acción no se puede deshacer.`)) return;
+      btn.textContent = 'Eliminando...'; btn.disabled = true;
+      const res = await apiFetch(`/api/campaigns/${btn.dataset.camp}`, { method: 'DELETE' });
+      if (res?.ok) {
+        loadCampaignsOnly();
+      } else {
+        btn.textContent = '🗑 Eliminar'; btn.disabled = false;
+        alert('Error al eliminar la campaña: ' + (res?.error || 'unknown'));
       }
     });
   });
