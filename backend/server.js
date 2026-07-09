@@ -684,6 +684,19 @@ app.patch('/api/contacts/:email', auth, async (req, res) => {
   }
 });
 
+// Delete a contact entirely. ON DELETE CASCADE removes its campaign_leads,
+// campaign_activity, contact_tags and notes along with it.
+app.delete('/api/contacts/:email', auth, async (req, res) => {
+  try {
+    const { email } = req.params;
+    const r = await pool.query(`DELETE FROM contacts WHERE email = $1`, [email]);
+    if (!r.rowCount) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true, deleted: r.rowCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Change a contact's email (primary key). ON UPDATE CASCADE propagates the
 // change to notes, campaign_leads, campaign_activity and contact_tags.
 app.post('/api/contacts/:email/change-email', auth, async (req, res) => {

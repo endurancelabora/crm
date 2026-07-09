@@ -1230,6 +1230,7 @@ function renderDrawer() {
         ${c.email_bounced ? '<span class="badge badge-amber" style="margin-top:6px;margin-left:4px">Bounced</span>' : ''}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
+        ${!edit ? `<button class="btn btn-ghost" id="delete-contact-btn" style="font-size:12px;color:#f87171">🗑 Eliminar</button>` : ''}
         ${!edit ? `<button class="btn btn-ghost" id="edit-btn" style="font-size:12px">✏ Edit</button>` : ''}
         <button class="close-btn" id="close-drawer">✕</button>
       </div>
@@ -3721,6 +3722,24 @@ function closeDrawer() {
   document.getElementById('drawer-overlay')?.classList.remove('open');
 }
 
+async function deleteContact() {
+  const email = state.drawerEmail;
+  if (!email) return;
+  const c = state.drawerData || {};
+  const name = fmtName(c);
+  if (!confirm(`¿Eliminar el contacto "${name}" (${email})?\n\nSe borrará por completo: sus campañas, actividad, respuestas, notas y etiquetas.\n\nEsta acción no se puede deshacer.`)) return;
+  const btn = document.getElementById('delete-contact-btn');
+  if (btn) { btn.textContent = 'Eliminando...'; btn.disabled = true; }
+  const res = await apiFetch(`/api/contacts/${encodeURIComponent(email)}`, { method: 'DELETE' });
+  if (res?.ok) {
+    closeDrawer();
+    loadAll(); // refreshes stats/campaigns/categories and the contacts table
+  } else {
+    if (btn) { btn.textContent = '🗑 Eliminar'; btn.disabled = false; }
+    alert('No se pudo eliminar el contacto: ' + (res?.error || 'desconocido'));
+  }
+}
+
 async function saveContactEdit() {
   const inputs = document.querySelectorAll('.edit-input[data-field]');
   const updates = {};
@@ -3755,6 +3774,7 @@ function refreshDrawerUI() {
   tmp.innerHTML = renderDrawer();
   drawer.innerHTML = tmp.querySelector('#drawer').innerHTML;
   document.getElementById('close-drawer')?.addEventListener('click', closeDrawer);
+  document.getElementById('delete-contact-btn')?.addEventListener('click', deleteContact);
   document.getElementById('edit-btn')?.addEventListener('click', () => { state.drawerEditing = true; refreshDrawerUI(); });
   document.getElementById('save-edit-btn')?.addEventListener('click', saveContactEdit);
   document.getElementById('cancel-edit-btn')?.addEventListener('click', () => { state.drawerEditing = false; refreshDrawerUI(); });
