@@ -3725,8 +3725,8 @@ function closeDrawer() {
 async function deleteContact() {
   const email = state.drawerEmail;
   if (!email) return;
-  const c = state.drawerData || {};
-  const name = fmtName(c);
+  const c = state.drawerData?.contact || {};
+  const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || email;
   if (!await uiConfirm(`¿Eliminar el contacto "${name}" (${email})?\n\nSe borrará por completo: sus campañas, actividad, respuestas, notas y etiquetas.\n\nEsta acción no se puede deshacer.`)) return;
   const btn = document.getElementById('delete-contact-btn');
   if (btn) { btn.textContent = 'Eliminando...'; btn.disabled = true; }
