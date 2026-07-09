@@ -372,7 +372,7 @@ let state = {
   selectedCampaigns: [], selectedCategories: [],
   campaigns: [], stats: null, tags: [], categories: [],
   activityItems: [], activitySummary: { sent:0, opened:0, reply:0 }, activityFrom: '', activityTo: '', activityCampaign: '', activityLoading: false, activityCapped: false,
-  activityColOrder: null, activityVisibleCols: null, activityColOrderInit: false, activitySort: 'ts', activitySortDir: 'DESC', activityColFilters: {},
+  activityColOrder: null, activityVisibleCols: null, activityColOrderInit: false, activitySort: 'ts', activitySortDir: 'DESC', activityColFilters: {}, activitySearch: '',
   drawerEmail: null, drawerData: null, drawerTags: [],
   drawerEditing: false,
   sort_by: 'email', sort_dir: 'ASC', limit: 50,
@@ -3425,11 +3425,11 @@ const ACTIVITY_COLUMNS = [
   { key:'ts',            label:'Fecha',     filterable:false },
   { key:'type',          label:'Tipo' },
   { key:'category',      label:'Categoría' },
-  { key:'contact',       label:'Contacto' },
-  { key:'company',       label:'Empresa' },
+  { key:'contact',       label:'Contacto',  filterable:false },
+  { key:'company',       label:'Empresa',   filterable:false },
   { key:'campaign_name', label:'Campaña' },
   { key:'seq',           label:'Secuencia' },
-  { key:'subject',       label:'Asunto' },
+  { key:'subject',       label:'Asunto',    filterable:false },
 ];
 const ACT_DEFAULT_COLS = ['ts','type','category','contact','company','campaign_name','subject'];
 function loadActCols() {
@@ -3462,6 +3462,11 @@ function actColValues(key) {
 }
 function getActivityRows() {
   let rows = state.activityItems || [];
+  const q = (state.activitySearch || '').trim().toLowerCase();
+  if (q) rows = rows.filter(it => {
+    const name = ([it.first_name, it.last_name].filter(Boolean).join(' ') || '').toLowerCase();
+    return name.includes(q) || (it.email||'').toLowerCase().includes(q) || (it.company_cleaned||it.company||'').toLowerCase().includes(q);
+  });
   const filters = state.activityColFilters || {};
   Object.keys(filters).forEach(key => { const set = filters[key]; if (set && set.size) rows = rows.filter(it => set.has(String(actCellValue(it,key)))); });
   const sk = state.activitySort || 'ts', dir = state.activitySortDir==='ASC' ? 1 : -1;
@@ -3519,6 +3524,9 @@ function renderActivity() {
     <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Del <input class="filter-input" type="date" id="act-from" value="${state.activityFrom}" style="width:150px"></label>
     <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">al <input class="filter-input" type="date" id="act-to" value="${state.activityTo||state.activityFrom}" style="width:150px"></label>
     ${colPanel}
+  </div>
+  <div class="filters" style="padding-top:0">
+    <input class="filter-input" type="text" id="act-search" placeholder="🔍  Buscar por nombre, correo o empresa..." value="${escAttr(state.activitySearch||'')}" style="width:360px;max-width:100%">
   </div>
   <div class="filters" style="gap:8px;flex-wrap:wrap;align-items:center">
     <span style="font-size:12px;color:var(--text2)">Filtros:</span>
@@ -3592,6 +3600,8 @@ function bindActivityEvents() {
   document.getElementById('act-7d')?.addEventListener('click', () => { const d = new Date(); d.setDate(d.getDate()-6); state.activityFrom = d.toLocaleDateString('en-CA'); state.activityTo = todayISO(); loadActivity(); });
   document.getElementById('act-from')?.addEventListener('change', e => { state.activityFrom = e.target.value; loadActivity(); });
   document.getElementById('act-to')?.addEventListener('change', e => { state.activityTo = e.target.value; loadActivity(); });
+  // General search (client, over name / email / company)
+  document.getElementById('act-search')?.addEventListener('input', e => { state.activitySearch = e.target.value; refreshActivityData(); });
   // Sort (client)
   document.querySelectorAll('.act-sort').forEach(th => th.addEventListener('click', () => {
     const k = th.dataset.key;
