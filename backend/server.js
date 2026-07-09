@@ -150,11 +150,22 @@ function extractEmail(s) {
 // attribute to a real campaign), so they still land in a contact's history.
 const UNTRACKED_CAMPAIGN = 'Sin campaña';
 
+// TEMPORARY: keep the last raw webhook payloads in memory to inspect undocumented
+// event shapes. Read via GET /webhook/recent?token=... . Safe to remove afterwards.
+const recentWebhooks = [];
+app.get('/webhook/recent', (req, res) => {
+  if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  res.json({ count: recentWebhooks.length, payloads: recentWebhooks });
+});
+
 app.post('/webhook/smartlead', async (req, res) => {
   if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
 
   const payload = req.body;
   const eventType = payload.event_type;
+
+  recentWebhooks.unshift({ received_at: new Date().toISOString(), event_type: eventType, body: payload });
+  if (recentWebhooks.length > 30) recentWebhooks.length = 30;
 
   try {
     // Untracked replies have a different shape: no lead_email/campaign, and the
