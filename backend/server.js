@@ -264,6 +264,22 @@ app.post('/webhook/smartlead', async (req, res) => {
   }
 });
 
+// ── TEMPORARY debug capture ──────────────────────────────────────────────────
+// Captures raw webhook payloads in memory ONLY (no DB writes) so undocumented
+// events can be inspected. Point a webhook at POST /webhook/debug?token=... then
+// read them back from GET /webhook/debug?token=... . Safe to remove afterwards.
+const debugPayloads = [];
+app.post('/webhook/debug', (req, res) => {
+  if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  debugPayloads.unshift({ received_at: new Date().toISOString(), event_type: req.body?.event_type || null, body: req.body });
+  if (debugPayloads.length > 20) debugPayloads.length = 20;
+  res.json({ ok: true, captured: debugPayloads.length });
+});
+app.get('/webhook/debug', (req, res) => {
+  if (!webhookAuthorized(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  res.json({ count: debugPayloads.length, payloads: debugPayloads });
+});
+
 // ═══════════════════════════════════════════════════════════
 // CONTACTS
 // ═══════════════════════════════════════════════════════════
