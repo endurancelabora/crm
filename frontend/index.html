@@ -371,6 +371,7 @@ let state = {
   search: '', campaign: '', category: '',
   selectedCampaigns: [], selectedCategories: [],
   campaigns: [], stats: null, tags: [], categories: [],
+  activityItems: [], activitySummary: { sent:0, opened:0, reply:0 }, activityFrom: '', activityTo: '', activityCampaign: '', activityLoading: false, activityCapped: false,
   drawerEmail: null, drawerData: null, drawerTags: [],
   drawerEditing: false,
   sort_by: 'email', sort_dir: 'ASC', limit: 50,
@@ -698,6 +699,7 @@ function renderApp() {
       <div class="nav-item ${state.view==='companies'?'active':''}" data-view="companies"><span class="nav-icon">🏢</span> Companies</div>
       <div class="nav-item ${state.view==='names'?'active':''}" data-view="names"><span class="nav-icon">🧑</span> Names</div>
       <div class="nav-item ${state.view==='campaigns'?'active':''}" data-view="campaigns"><span class="nav-icon">📣</span> Campaigns</div>
+      <div class="nav-item ${state.view==='activity'?'active':''}" data-view="activity"><span class="nav-icon">📬</span> Actividad</div>
       <div class="nav-item ${state.view==='cleanup'?'active':''}" data-view="cleanup"><span class="nav-icon">🧹</span> Limpieza</div>
       <div class="nav-item ${state.view==='import'?'active':''}" data-view="import"><span class="nav-icon">📥</span> Import</div>
       <div class="nav-item ${state.view==='admin'?'active':''}" data-view="admin" style="margin-top:auto"><span class="nav-icon">⚙</span> Admin</div>
@@ -708,7 +710,7 @@ function renderApp() {
       </div>
     </aside>
     <div class="main" id="main-content">
-      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'names' ? renderNames() : state.view === 'cleanup' ? renderCleanup() : state.view === 'import' ? renderImport() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
+      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'names' ? renderNames() : state.view === 'activity' ? renderActivity() : state.view === 'cleanup' ? renderCleanup() : state.view === 'import' ? renderImport() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
     </div>
   </div>
   ${renderDrawer()}
@@ -2181,6 +2183,7 @@ function bindApp() {
   if (state.view === 'admin') bindAdminEvents();
   if (state.view === 'import') bindImport();
   if (state.view === 'cleanup') bindCleanupEvents();
+  if (state.view === 'activity') { bindActivityEvents(); if (!state.activityLoading && !state.activityItems.length) loadActivity(); }
 
   document.getElementById('drawer-overlay')?.addEventListener('click', closeDrawer);
   document.getElementById('close-drawer')?.addEventListener('click', closeDrawer);
@@ -3401,6 +3404,97 @@ function bindNamesEvents() {
   document.getElementById('name-limit-select')?.addEventListener('change', e => {
     state.nameLimit = parseInt(e.target.value); state.namePage = 1; loadNames();
   });
+}
+
+// ─── Actividad tab: daily feed of sends / opens / replies ──────────────────────
+function esc(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return (s == null ? '' : String(s)).replace(/"/g,'&quot;'); }
+function todayISO() { return new Date().toLocaleDateString('en-CA'); } // YYYY-MM-DD (local)
+function fmtDateTime(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleString('es-MX', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+function actTile(label, n, color) {
+  return `<div style="flex:1;min-width:130px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px">
+    <div style="font-size:24px;font-weight:700;color:${color}">${(n||0).toLocaleString()}</div>
+    <div style="font-size:12px;color:var(--text2)">${label}</div></div>`;
+}
+
+function renderActivity() {
+  if (!state.activityFrom) { state.activityFrom = todayISO(); state.activityTo = todayISO(); }
+  const s = state.activitySummary || { sent:0, opened:0, reply:0 };
+  const campOpts = ['<option value="">Todas las campañas</option>']
+    .concat((state.campaigns||[]).map(c => `<option value="${escAttr(c.campaign_name)}" ${state.activityCampaign===c.campaign_name?'selected':''}>${esc(c.campaign_name)}</option>`)).join('');
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Actividad</div>
+      <div class="page-subtitle">Lo que se envió, se abrió y las respuestas — por día</div>
+    </div>
+  </div>
+  <div class="filters" style="gap:10px;flex-wrap:wrap;align-items:center">
+    <button class="btn btn-ghost" id="act-today">Hoy</button>
+    <button class="btn btn-ghost" id="act-7d">Últimos 7 días</button>
+    <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">Del <input class="filter-input" type="date" id="act-from" value="${state.activityFrom}" style="width:150px"></label>
+    <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">al <input class="filter-input" type="date" id="act-to" value="${state.activityTo||state.activityFrom}" style="width:150px"></label>
+    <select class="filter-input" id="act-campaign" style="max-width:280px">${campOpts}</select>
+  </div>
+  <div style="display:flex;gap:12px;padding:0 32px 14px;flex-wrap:wrap">
+    ${actTile('📤 Enviados', s.sent, 'var(--accent-light)')}
+    ${actTile('👁 Aperturas', s.opened, '#a78bfa')}
+    ${actTile('↩ Respuestas', s.reply, '#4ade80')}
+  </div>
+  <div id="activity-body" style="padding:0 32px 32px">${renderActivityBody()}</div>`;
+}
+
+function renderActivityBody() {
+  if (state.activityLoading) return '<div style="color:var(--text2);padding:24px;text-align:center">Cargando…</div>';
+  const items = state.activityItems || [];
+  if (!items.length) return '<div style="color:var(--text2);padding:24px;text-align:center">Sin actividad en este rango.</div>';
+  const rows = items.map(it => {
+    const name = [it.first_name, it.last_name].filter(Boolean).join(' ') || it.email;
+    const comp = it.company_cleaned || it.company || '';
+    const tag = it.type==='sent' ? '<span style="color:var(--accent-light)">📤 Enviado</span>'
+              : it.type==='opened' ? '<span style="color:#a78bfa">👁 Abrió</span>'
+              : '<span style="color:#4ade80">↩ Respondió</span>';
+    const seq = it.seq ? ` · seq ${esc(it.seq)}` : '';
+    return `<tr class="act-row" data-email="${escAttr(it.email)}" style="cursor:pointer">
+      <td style="white-space:nowrap;color:var(--text2);font-size:12px">${fmtDateTime(it.ts)}</td>
+      <td style="white-space:nowrap;font-size:12px">${tag}${seq}</td>
+      <td><div style="font-weight:600">${esc(name)}</div><div style="font-size:11px;color:var(--text2)">${esc(it.email)}</div></td>
+      <td style="color:var(--text2);font-size:12px">${esc(comp||'—')}</td>
+      <td style="font-size:12px">${esc(it.campaign_name||'—')}</td>
+      <td style="font-size:12px">${esc(it.subject||'—')}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="table-wrap"><table class="table"><thead><tr>
+      <th style="width:120px">Fecha</th><th style="width:130px">Tipo</th><th>Contacto</th><th>Empresa</th><th>Campaña</th><th>Asunto</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    ${state.activityCapped ? '<div style="color:var(--text2);font-size:11px;padding:10px 0">Mostrando los primeros 500. Acota el rango o filtra por campaña para ver menos.</div>' : ''}`;
+}
+
+async function loadActivity() {
+  if (!state.activityFrom) { state.activityFrom = todayISO(); state.activityTo = todayISO(); }
+  state.activityLoading = true;
+  const box = document.getElementById('activity-body'); if (box) box.innerHTML = renderActivityBody();
+  const params = new URLSearchParams({ from: state.activityFrom, to: state.activityTo || state.activityFrom });
+  if (state.activityCampaign) params.set('campaign', state.activityCampaign);
+  const data = await apiFetch('/api/activity?' + params);
+  state.activityItems = data?.items || [];
+  state.activitySummary = data?.summary || { sent:0, opened:0, reply:0 };
+  state.activityCapped = !!data?.capped;
+  state.activityLoading = false;
+  const main = document.getElementById('main-content');
+  if (main && state.view === 'activity') { main.innerHTML = renderActivity(); bindActivityEvents(); }
+}
+
+function bindActivityEvents() {
+  document.getElementById('act-today')?.addEventListener('click', () => { state.activityFrom = todayISO(); state.activityTo = todayISO(); loadActivity(); });
+  document.getElementById('act-7d')?.addEventListener('click', () => { const d = new Date(); d.setDate(d.getDate()-6); state.activityFrom = d.toLocaleDateString('en-CA'); state.activityTo = todayISO(); loadActivity(); });
+  document.getElementById('act-from')?.addEventListener('change', e => { state.activityFrom = e.target.value; loadActivity(); });
+  document.getElementById('act-to')?.addEventListener('change', e => { state.activityTo = e.target.value; loadActivity(); });
+  document.getElementById('act-campaign')?.addEventListener('change', e => { state.activityCampaign = e.target.value; loadActivity(); });
+  document.querySelectorAll('.act-row').forEach(r => r.addEventListener('click', () => openDrawer(r.dataset.email)));
 }
 
 // ─── Cleanup tab: pick a column, review its distinct values, merge duplicates ───

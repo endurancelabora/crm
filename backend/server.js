@@ -289,7 +289,7 @@ app.post('/webhook/smartlead', async (req, res) => {
         }
         break;
       }
-      case 'EMAIL_OPEN':
+      case 'EMAIL_OPEN': {
         await pool.query(`
           INSERT INTO campaign_leads (email, campaign_id, campaign_name, lead_category)
           VALUES ($1,$2,$3,'Opened')
@@ -299,7 +299,20 @@ app.post('/webhook/smartlead', async (req, res) => {
                             THEN campaign_leads.lead_category ELSE 'Opened' END,
             updated_at = NOW()
         `, [email, payload.campaign_id || null, payload.campaign_name || null]);
+        // Record the open time so it shows in the activity feed.
+        const oseq = String(payload.sequence_number ?? '');
+        if (oseq) {
+          const openedAt = payload.time_opened || payload.event_timestamp || null;
+          await pool.query(`
+            INSERT INTO campaign_activity (email, campaign_name, sequence_number, opened_at, open_count)
+            VALUES ($1,$2,$3, COALESCE($4::timestamptz, NOW()), 1)
+            ON CONFLICT (email, campaign_name, sequence_number) DO UPDATE SET
+              opened_at  = COALESCE(campaign_activity.opened_at, EXCLUDED.opened_at),
+              open_count = COALESCE(campaign_activity.open_count, 0) + 1
+          `, [email, payload.campaign_name || null, oseq, openedAt]);
+        }
         break;
+      }
       case 'MANUAL_REPLY_SENT': {
         // Your outbound manual reply to the lead (email = to_email). Store it so it
         // appears in the contact's conversation thread. No campaign_leads/category change.
@@ -569,6 +582,49 @@ app.get('/api/categories', auth, async (req, res) => {
       GROUP BY lead_category
       ORDER BY count DESC, value ASC`);
     res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Daily activity feed: sent emails, opens and replies within a date range (dates are
+// interpreted in Mexico City time). Optional campaign filter. Returns items + a summary.
+app.get('/api/activity', auth, async (req, res) => {
+  try {
+    const from = req.query.from;
+    const to = req.query.to || from;
+    if (!from) return res.status(400).json({ error: 'from required' });
+    const TZ = 'America/Mexico_City';
+    const campaign = req.query.campaign || null;
+    const params = [TZ, from, to];
+    let camp = '';
+    if (campaign) { params.push(campaign); camp = `AND campaign_name = $4`; }
+
+    const evSql = `
+      SELECT 'sent' AS type, email, campaign_name, sequence_number::text AS seq, subject, sent_at AS ts
+        FROM campaign_activity
+       WHERE sent_at IS NOT NULL AND (sent_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date ${camp}
+      UNION ALL
+      SELECT 'opened', email, campaign_name, sequence_number::text, subject, opened_at
+        FROM campaign_activity
+       WHERE opened_at IS NOT NULL AND (opened_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date ${camp}
+      UNION ALL
+      SELECT 'reply', email, campaign_name, NULL::text, reply_subject, replied_at
+        FROM campaign_leads
+       WHERE replied_at IS NOT NULL AND (replied_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date ${camp}
+    `;
+
+    const items = await pool.query(
+      `SELECT ev.type, ev.email, ev.campaign_name, ev.seq, ev.subject, ev.ts,
+              c.first_name, c.last_name, c.company, c.company_cleaned
+         FROM (${evSql}) ev
+         JOIN contacts c ON c.email = ev.email
+        ORDER BY ev.ts DESC
+        LIMIT 500`, params);
+    const summary = await pool.query(
+      `SELECT type, COUNT(*)::int AS n FROM (${evSql}) x GROUP BY type`, params);
+
+    const sum = { sent: 0, opened: 0, reply: 0 };
+    summary.rows.forEach(r => { sum[r.type] = r.n; });
+    res.json({ summary: sum, items: items.rows, capped: items.rows.length >= 500 });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
