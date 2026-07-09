@@ -3424,13 +3424,14 @@ function actTile(label, n, color) {
 const ACTIVITY_COLUMNS = [
   { key:'ts',            label:'Fecha',     filterable:false },
   { key:'type',          label:'Tipo' },
+  { key:'category',      label:'Categoría' },
   { key:'contact',       label:'Contacto' },
   { key:'company',       label:'Empresa' },
   { key:'campaign_name', label:'Campaña' },
   { key:'seq',           label:'Secuencia' },
   { key:'subject',       label:'Asunto' },
 ];
-const ACT_DEFAULT_COLS = ['ts','type','contact','company','campaign_name','subject'];
+const ACT_DEFAULT_COLS = ['ts','type','category','contact','company','campaign_name','subject'];
 function loadActCols() {
   try { const s = JSON.parse(localStorage.getItem('crm_act_col_order'));
     if (s && s.length) { const map = Object.fromEntries(ACTIVITY_COLUMNS.map(c=>[c.key,c]));
@@ -3448,6 +3449,7 @@ function actCellValue(it, key) {
     case 'contact': return [it.first_name,it.last_name].filter(Boolean).join(' ') || it.email;
     case 'company': return it.company_cleaned || it.company || '';
     case 'campaign_name': return it.campaign_name || '';
+    case 'category': return it.category || '';
     case 'seq': return it.seq || '';
     case 'subject': return it.subject || '';
     default: return '';
@@ -3545,6 +3547,7 @@ function renderActivityBody(cols, rows) {
       if (c.key==='ts') return `<td style="white-space:nowrap;color:var(--text2);font-size:12px">${fmtDateTime(it.ts)}</td>`;
       if (c.key==='type') { const t = it.type==='sent'?'<span style="color:var(--accent-light)">📤 Enviado</span>':it.type==='opened'?'<span style="color:#a78bfa">👁 Abrió</span>':'<span style="color:#4ade80">↩ Respondió</span>'; return `<td style="white-space:nowrap;font-size:12px">${t}</td>`; }
       if (c.key==='contact') { const name = [it.first_name,it.last_name].filter(Boolean).join(' ') || it.email; return `<td><div style="font-weight:600">${esc(name)}</div><div style="font-size:11px;color:var(--text2)">${esc(it.email)}</div></td>`; }
+      if (c.key==='category') return `<td>${it.category ? badge(it.category) : '<span style="color:var(--text2)">—</span>'}</td>`;
       return `<td style="font-size:12px">${esc(actCellValue(it,c.key)||'—')}</td>`;
     }).join('');
     return `<tr class="act-row" data-email="${escAttr(it.email)}" style="cursor:pointer">${tds}</tr>`;

@@ -599,21 +599,21 @@ app.get('/api/activity', auth, async (req, res) => {
     if (campaign) { params.push(campaign); camp = `AND campaign_name = $4`; }
 
     const evSql = `
-      SELECT 'sent' AS type, email, campaign_name, sequence_number::text AS seq, subject, sent_at AS ts
+      SELECT 'sent' AS type, email, campaign_name, sequence_number::text AS seq, subject, sent_at AS ts, NULL::text AS category
         FROM campaign_activity
        WHERE sent_at IS NOT NULL AND (sent_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date ${camp}
       UNION ALL
-      SELECT 'opened', email, campaign_name, sequence_number::text, subject, opened_at
+      SELECT 'opened', email, campaign_name, sequence_number::text, subject, opened_at, NULL::text
         FROM campaign_activity
        WHERE opened_at IS NOT NULL AND (opened_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date ${camp}
       UNION ALL
-      SELECT 'reply', email, campaign_name, NULL::text, reply_subject, replied_at
+      SELECT 'reply', email, campaign_name, NULL::text, reply_subject, replied_at, lead_category
         FROM campaign_leads
        WHERE replied_at IS NOT NULL AND (replied_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date ${camp}
     `;
 
     const items = await pool.query(
-      `SELECT ev.type, ev.email, ev.campaign_name, ev.seq, ev.subject, ev.ts,
+      `SELECT ev.type, ev.email, ev.campaign_name, ev.seq, ev.subject, ev.ts, ev.category,
               c.first_name, c.last_name, c.company, c.company_cleaned
          FROM (${evSql}) ev
          JOIN contacts c ON c.email = ev.email
