@@ -115,93 +115,101 @@ pool.query(`UPDATE contacts SET custom_fields = custom_fields - 'ELV Internal Re
 // edits from Configuración. The engine (recomputeScore) just reads whatever rows
 // exist and applies them, so the pipeline is dynamic and iterable without deploys.
 
-// Score + lifecycle stage + suggested next action, computed per contact.
-pool.query(`
-  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS lead_score      INTEGER DEFAULT 0;
-  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS lifecycle_stage VARCHAR(60);
-  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS next_action     TEXT;
-  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS score_updated_at TIMESTAMPTZ;
-`).catch(e => console.error('contacts scoring columns migration error:', e.message));
+// These migrations MUST run in order: the seed INSERTs depend on the tables
+// existing first. Fire-and-forget pool.query calls race on the pool, so the seed
+// could hit the table before CREATE finishes — run the whole block sequentially.
+(async () => {
+  try {
+    // Score + lifecycle stage + suggested next action, computed per contact.
+    await pool.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS lead_score      INTEGER DEFAULT 0;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS lifecycle_stage VARCHAR(60);
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS next_action     TEXT;
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS score_updated_at TIMESTAMPTZ;
+    `);
 
-// Pipeline stages: ordered buckets. score_min/score_max define which stage a
-// contact lands in by score. is_terminal stages (Oportunidad, Cliente) are set
-// by hand and never auto-overwritten. is_hot marks the stage that triggers a
-// follow-up task (the "está caliente" threshold).
-pool.query(`
-  CREATE TABLE IF NOT EXISTS pipeline_stages (
-    id          SERIAL PRIMARY KEY,
-    name        VARCHAR(80) NOT NULL,
-    color       VARCHAR(20) NOT NULL DEFAULT '#888780',
-    sort_order  INTEGER NOT NULL DEFAULT 0,
-    score_min   INTEGER,
-    score_max   INTEGER,
-    is_terminal BOOLEAN NOT NULL DEFAULT FALSE,
-    is_hot      BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at  TIMESTAMPTZ DEFAULT NOW()
-  );
-`).catch(e => console.error('pipeline_stages table creation error:', e.message));
+    // Pipeline stages: ordered buckets. score_min/score_max define which stage a
+    // contact lands in by score. is_terminal stages (Oportunidad, Cliente) are set
+    // by hand and never auto-overwritten. is_hot marks the stage that triggers a
+    // follow-up task (the "está caliente" threshold).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pipeline_stages (
+        id          SERIAL PRIMARY KEY,
+        name        VARCHAR(80) NOT NULL,
+        color       VARCHAR(20) NOT NULL DEFAULT '#888780',
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        score_min   INTEGER,
+        score_max   INTEGER,
+        is_terminal BOOLEAN NOT NULL DEFAULT FALSE,
+        is_hot      BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
 
-// Scoring rules: one row per rule. event_type is what happened; the optional
-// condition_* gate the rule to a subset of contacts (e.g. industry = importador).
-// points can be negative; cap bounds a single rule's magnitude.
-pool.query(`
-  CREATE TABLE IF NOT EXISTS scoring_rules (
-    id             SERIAL PRIMARY KEY,
-    name           VARCHAR(120) NOT NULL,
-    event_type     VARCHAR(40) NOT NULL,
-    condition_field VARCHAR(60),
-    condition_op   VARCHAR(20),
-    condition_value TEXT,
-    points         INTEGER NOT NULL DEFAULT 0,
-    cap            INTEGER,
-    active         BOOLEAN NOT NULL DEFAULT TRUE,
-    sort_order     INTEGER NOT NULL DEFAULT 0,
-    created_at     TIMESTAMPTZ DEFAULT NOW()
-  );
-`).catch(e => console.error('scoring_rules table creation error:', e.message));
+    // Scoring rules: one row per rule. event_type is what happened; the optional
+    // condition_* gate the rule to a subset of contacts (e.g. industry = importador).
+    // points can be negative; cap bounds a single rule's magnitude.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scoring_rules (
+        id             SERIAL PRIMARY KEY,
+        name           VARCHAR(120) NOT NULL,
+        event_type     VARCHAR(40) NOT NULL,
+        condition_field VARCHAR(60),
+        condition_op   VARCHAR(20),
+        condition_value TEXT,
+        points         INTEGER NOT NULL DEFAULT 0,
+        cap            INTEGER,
+        active         BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order     INTEGER NOT NULL DEFAULT 0,
+        created_at     TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
 
-// Tasks: the follow-up queue that feeds the Daily Hot List. One open task per
-// contact at a time (enforced in code). status: open | done | dismissed.
-pool.query(`
-  CREATE TABLE IF NOT EXISTS tasks (
-    id            SERIAL PRIMARY KEY,
-    email         VARCHAR(255) NOT NULL REFERENCES contacts(email) ON UPDATE CASCADE ON DELETE CASCADE,
-    reason        TEXT,
-    action_type   VARCHAR(30),
-    score_snapshot INTEGER,
-    status        VARCHAR(20) NOT NULL DEFAULT 'open',
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
-    completed_at  TIMESTAMPTZ
-  );
-  CREATE INDEX IF NOT EXISTS idx_tasks_email  ON tasks(email);
-  CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-`).catch(e => console.error('tasks table creation error:', e.message));
+    // Tasks: the follow-up queue that feeds the Daily Hot List. One open task per
+    // contact at a time (enforced in code). status: open | done | dismissed.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id            SERIAL PRIMARY KEY,
+        email         VARCHAR(255) NOT NULL REFERENCES contacts(email) ON UPDATE CASCADE ON DELETE CASCADE,
+        reason        TEXT,
+        action_type   VARCHAR(30),
+        score_snapshot INTEGER,
+        status        VARCHAR(20) NOT NULL DEFAULT 'open',
+        created_at    TIMESTAMPTZ DEFAULT NOW(),
+        completed_at  TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_tasks_email  ON tasks(email);
+      CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    `);
 
-// Seed default stages + rules on first boot only (idempotent: skips if rows exist).
-// These mirror the config screen the user signed off on.
-pool.query(`
-  INSERT INTO pipeline_stages (name, color, sort_order, score_min, score_max, is_terminal, is_hot)
-  SELECT * FROM (VALUES
-    ('Lead frío',   '#888780', 1, 0,    9,    FALSE, FALSE),
-    ('Enganchado',  '#378ADD', 2, 10,   39,   FALSE, FALSE),
-    ('Calificado',  '#1D9E75', 3, 40,   NULL, FALSE, TRUE),
-    ('Oportunidad', '#D4537E', 4, NULL, NULL, TRUE,  FALSE),
-    ('Cliente',     '#639922', 5, NULL, NULL, TRUE,  FALSE)
-  ) AS v(name,color,sort_order,score_min,score_max,is_terminal,is_hot)
-  WHERE NOT EXISTS (SELECT 1 FROM pipeline_stages);
-`).catch(e => console.error('pipeline_stages seed error:', e.message));
+    // Seed default stages + rules on first boot only (idempotent: skips if rows exist).
+    await pool.query(`
+      INSERT INTO pipeline_stages (name, color, sort_order, score_min, score_max, is_terminal, is_hot)
+      SELECT * FROM (VALUES
+        ('Lead frío',   '#888780', 1, 0,    9,    FALSE, FALSE),
+        ('Enganchado',  '#378ADD', 2, 10,   39,   FALSE, FALSE),
+        ('Calificado',  '#1D9E75', 3, 40,   NULL, FALSE, TRUE),
+        ('Oportunidad', '#D4537E', 4, NULL, NULL, TRUE,  FALSE),
+        ('Cliente',     '#639922', 5, NULL, NULL, TRUE,  FALSE)
+      ) AS v(name,color,sort_order,score_min,score_max,is_terminal,is_hot)
+      WHERE NOT EXISTS (SELECT 1 FROM pipeline_stages);
+    `);
 
-pool.query(`
-  INSERT INTO scoring_rules (name, event_type, condition_field, condition_op, condition_value, points, cap, active, sort_order)
-  SELECT * FROM (VALUES
-    ('Abrió email',            'email_open',     NULL, NULL, NULL, 1,   5,    TRUE, 1),
-    ('Hizo clic en link',      'email_click',    NULL, NULL, NULL, 10,  NULL, TRUE, 2),
-    ('Respondió positivo',     'reply_positive', NULL, NULL, NULL, 30,  NULL, TRUE, 3),
-    ('Respondió negativo',     'reply_negative', NULL, NULL, NULL, -20, NULL, TRUE, 4),
-    ('Sin actividad 30 días',  'inactivity',     NULL, NULL, '30', -5,  NULL, FALSE, 5)
-  ) AS v(name,event_type,condition_field,condition_op,condition_value,points,cap,active,sort_order)
-  WHERE NOT EXISTS (SELECT 1 FROM scoring_rules);
-`).catch(e => console.error('scoring_rules seed error:', e.message));
+    await pool.query(`
+      INSERT INTO scoring_rules (name, event_type, condition_field, condition_op, condition_value, points, cap, active, sort_order)
+      SELECT * FROM (VALUES
+        ('Abrió email',            'email_open',     NULL, NULL, NULL, 1,   5,    TRUE, 1),
+        ('Hizo clic en link',      'email_click',    NULL, NULL, NULL, 10,  NULL, TRUE, 2),
+        ('Respondió positivo',     'reply_positive', NULL, NULL, NULL, 30,  NULL, TRUE, 3),
+        ('Respondió negativo',     'reply_negative', NULL, NULL, NULL, -20, NULL, TRUE, 4),
+        ('Sin actividad 30 días',  'inactivity',     NULL, NULL, '30', -5,  NULL, FALSE, 5)
+      ) AS v(name,event_type,condition_field,condition_op,condition_value,points,cap,active,sort_order)
+      WHERE NOT EXISTS (SELECT 1 FROM scoring_rules);
+    `);
+  } catch (e) {
+    console.error('pipeline/scoring migration error:', e.message);
+  }
+})();
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
@@ -2331,9 +2339,6 @@ app.post('/api/admin/delete-custom-fields', auth, async (req, res) => {
   }
 });
 
-// ─── Catch-all frontend ────────────────────────────────────
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/index.html')));
-
 // ═══════════════════════════════════════════════════════════
 // PIPELINE STAGES (config UI)
 // ═══════════════════════════════════════════════════════════
@@ -2466,5 +2471,9 @@ app.patch('/api/tasks/:id', auth, async (req, res) => {
     [req.params.id, status, completed]);
   res.json(r.rows[0]);
 });
+
+// ─── Catch-all frontend (MUST be last — after every API route, or it shadows
+// their GET handlers and returns index.html instead of JSON) ─────────────────
+app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/index.html')));
 
 app.listen(PORT, () => console.log(`CRM Labora running on port ${PORT}`));
