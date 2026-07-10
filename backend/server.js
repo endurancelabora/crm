@@ -108,6 +108,101 @@ pool.query(`UPDATE contacts SET custom_fields = custom_fields - 'ELV Internal Re
             WHERE custom_fields ? 'ELV Internal Result';`)
   .catch(e => console.error('ELV Internal Result custom-field drop error:', e.message));
 
+// ═══════════════════════════════════════════════════════════
+// PIPELINE + SCORING (config-driven, editable from the UI)
+// ═══════════════════════════════════════════════════════════
+// Behavioral scoring lives as DATA, not code: rules and stages are rows the user
+// edits from Configuración. The engine (recomputeScore) just reads whatever rows
+// exist and applies them, so the pipeline is dynamic and iterable without deploys.
+
+// Score + lifecycle stage + suggested next action, computed per contact.
+pool.query(`
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS lead_score      INTEGER DEFAULT 0;
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS lifecycle_stage VARCHAR(60);
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS next_action     TEXT;
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS score_updated_at TIMESTAMPTZ;
+`).catch(e => console.error('contacts scoring columns migration error:', e.message));
+
+// Pipeline stages: ordered buckets. score_min/score_max define which stage a
+// contact lands in by score. is_terminal stages (Oportunidad, Cliente) are set
+// by hand and never auto-overwritten. is_hot marks the stage that triggers a
+// follow-up task (the "está caliente" threshold).
+pool.query(`
+  CREATE TABLE IF NOT EXISTS pipeline_stages (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(80) NOT NULL,
+    color       VARCHAR(20) NOT NULL DEFAULT '#888780',
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    score_min   INTEGER,
+    score_max   INTEGER,
+    is_terminal BOOLEAN NOT NULL DEFAULT FALSE,
+    is_hot      BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+  );
+`).catch(e => console.error('pipeline_stages table creation error:', e.message));
+
+// Scoring rules: one row per rule. event_type is what happened; the optional
+// condition_* gate the rule to a subset of contacts (e.g. industry = importador).
+// points can be negative; cap bounds a single rule's magnitude.
+pool.query(`
+  CREATE TABLE IF NOT EXISTS scoring_rules (
+    id             SERIAL PRIMARY KEY,
+    name           VARCHAR(120) NOT NULL,
+    event_type     VARCHAR(40) NOT NULL,
+    condition_field VARCHAR(60),
+    condition_op   VARCHAR(20),
+    condition_value TEXT,
+    points         INTEGER NOT NULL DEFAULT 0,
+    cap            INTEGER,
+    active         BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
+  );
+`).catch(e => console.error('scoring_rules table creation error:', e.message));
+
+// Tasks: the follow-up queue that feeds the Daily Hot List. One open task per
+// contact at a time (enforced in code). status: open | done | dismissed.
+pool.query(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id            SERIAL PRIMARY KEY,
+    email         VARCHAR(255) NOT NULL REFERENCES contacts(email) ON UPDATE CASCADE ON DELETE CASCADE,
+    reason        TEXT,
+    action_type   VARCHAR(30),
+    score_snapshot INTEGER,
+    status        VARCHAR(20) NOT NULL DEFAULT 'open',
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    completed_at  TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS idx_tasks_email  ON tasks(email);
+  CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+`).catch(e => console.error('tasks table creation error:', e.message));
+
+// Seed default stages + rules on first boot only (idempotent: skips if rows exist).
+// These mirror the config screen the user signed off on.
+pool.query(`
+  INSERT INTO pipeline_stages (name, color, sort_order, score_min, score_max, is_terminal, is_hot)
+  SELECT * FROM (VALUES
+    ('Lead frío',   '#888780', 1, 0,    9,    FALSE, FALSE),
+    ('Enganchado',  '#378ADD', 2, 10,   39,   FALSE, FALSE),
+    ('Calificado',  '#1D9E75', 3, 40,   NULL, FALSE, TRUE),
+    ('Oportunidad', '#D4537E', 4, NULL, NULL, TRUE,  FALSE),
+    ('Cliente',     '#639922', 5, NULL, NULL, TRUE,  FALSE)
+  ) AS v(name,color,sort_order,score_min,score_max,is_terminal,is_hot)
+  WHERE NOT EXISTS (SELECT 1 FROM pipeline_stages);
+`).catch(e => console.error('pipeline_stages seed error:', e.message));
+
+pool.query(`
+  INSERT INTO scoring_rules (name, event_type, condition_field, condition_op, condition_value, points, cap, active, sort_order)
+  SELECT * FROM (VALUES
+    ('Abrió email',            'email_open',     NULL, NULL, NULL, 1,   5,    TRUE, 1),
+    ('Hizo clic en link',      'email_click',    NULL, NULL, NULL, 10,  NULL, TRUE, 2),
+    ('Respondió positivo',     'reply_positive', NULL, NULL, NULL, 30,  NULL, TRUE, 3),
+    ('Respondió negativo',     'reply_negative', NULL, NULL, NULL, -20, NULL, TRUE, 4),
+    ('Sin actividad 30 días',  'inactivity',     NULL, NULL, '30', -5,  NULL, FALSE, 5)
+  ) AS v(name,event_type,condition_field,condition_op,condition_value,points,cap,active,sort_order)
+  WHERE NOT EXISTS (SELECT 1 FROM scoring_rules);
+`).catch(e => console.error('scoring_rules seed error:', e.message));
+
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.static(path.join(__dirname, '../frontend')));
@@ -327,12 +422,151 @@ app.post('/webhook/smartlead', async (req, res) => {
       }
     }
 
+    // Behavioral events change a lead's temperature. Recompute the score and
+    // refresh its follow-up task so the Daily Hot List stays live. Non-fatal.
+    if (['LEAD_CATEGORY_UPDATED', 'EMAIL_REPLY', 'EMAIL_OPEN', 'EMAIL_SENT'].includes(eventType)) {
+      try { await recomputeScore(email); }
+      catch (e) { console.error('score recompute error:', e.message); }
+    }
+
     res.json({ ok: true, event: eventType, email });
   } catch (err) {
     console.error('Webhook error:', err);
     res.status(500).json({ error: err.message });
   }
 });
+
+// ═══════════════════════════════════════════════════════════
+// SCORING ENGINE
+// ═══════════════════════════════════════════════════════════
+// Reads the behavioral signals we already store (opens, clicks, replies,
+// sentiment) and applies whatever scoring_rules are active, then places the
+// contact in a pipeline_stage by score and (re)builds its follow-up task.
+
+// Categories/sentiment that count as a positive or negative reply.
+const POSITIVE_CATS = ['interested', 'meeting request', 'meeting booked', 'information request', 'comprado'];
+const NEGATIVE_CATS = ['not interested', 'wrong person', 'do not contact', 'unsubscribed'];
+
+// Gather the raw signals for one contact from the activity/leads tables.
+async function getContactSignals(email) {
+  const act = await pool.query(`
+    SELECT COALESCE(SUM(open_count), 0)::int  AS opens,
+           COALESCE(SUM(click_count), 0)::int AS clicks,
+           BOOL_OR(replied_at IS NOT NULL)    AS has_reply,
+           MAX(GREATEST(COALESCE(opened_at,  'epoch'::timestamptz),
+                        COALESCE(replied_at, 'epoch'::timestamptz),
+                        COALESCE(sent_at,    'epoch'::timestamptz))) AS last_activity
+      FROM campaign_activity WHERE email = $1`, [email]);
+  const leads = await pool.query(
+    `SELECT sentiment, lead_category, replied_at FROM campaign_leads WHERE email = $1`, [email]);
+
+  const row = act.rows[0] || {};
+  let positive = false, negative = false, replied = row.has_reply || false;
+  for (const l of leads.rows) {
+    const sent = (l.sentiment || '').toLowerCase();
+    const cat = (l.lead_category || '').toLowerCase();
+    if (l.replied_at) replied = true;
+    if (sent.includes('positive') || POSITIVE_CATS.some(c => cat.includes(c))) positive = true;
+    if (sent.includes('negative') || NEGATIVE_CATS.some(c => cat.includes(c))) negative = true;
+  }
+  const last = row.last_activity && new Date(row.last_activity).getFullYear() > 1971
+    ? new Date(row.last_activity) : null;
+  const daysSince = last ? Math.floor((Date.now() - last.getTime()) / 86400000) : null;
+  return { opens: row.opens || 0, clicks: row.clicks || 0, replied, positive, negative, daysSince };
+}
+
+// Does an optional rule condition (on a contacts column) match this contact?
+function conditionMatches(rule, contact) {
+  if (!rule.condition_field) return true;
+  const val = String(contact[rule.condition_field] ?? '').toLowerCase();
+  const target = String(rule.condition_value ?? '').toLowerCase();
+  if (rule.condition_op === 'equals') return val === target;
+  return val.includes(target); // default: contains
+}
+
+// How many times a rule's event fired for this contact (magnitude before points).
+function eventCount(rule, s) {
+  switch (rule.event_type) {
+    case 'email_open':     return s.opens;
+    case 'email_click':    return s.clicks;
+    case 'reply_positive': return s.positive ? 1 : 0;
+    case 'reply_negative': return s.negative ? 1 : 0;
+    case 'inactivity': {
+      const threshold = parseInt(rule.condition_value, 10) || 30;
+      return (s.daysSince != null && s.daysSince >= threshold) ? 1 : 0;
+    }
+    default: return 0;
+  }
+}
+
+// Recompute one contact's score, stage, next action, and follow-up task.
+async function recomputeScore(email) {
+  const cRes = await pool.query(`SELECT * FROM contacts WHERE email = $1`, [email]);
+  const contact = cRes.rows[0];
+  if (!contact) return;
+
+  const [rulesRes, stagesRes, signals] = await Promise.all([
+    pool.query(`SELECT * FROM scoring_rules WHERE active = TRUE`),
+    pool.query(`SELECT * FROM pipeline_stages ORDER BY sort_order`),
+    getContactSignals(email),
+  ]);
+
+  let score = 0;
+  for (const rule of rulesRes.rows) {
+    if (!conditionMatches(rule, contact)) continue;
+    let contrib = eventCount(rule, signals) * rule.points;
+    if (rule.cap != null) {
+      contrib = rule.points >= 0 ? Math.min(contrib, rule.cap) : Math.max(contrib, -Math.abs(rule.cap));
+    }
+    score += contrib;
+  }
+  if (score < 0) score = 0;
+
+  // Place in a stage by score, but never downgrade a manually-set terminal stage.
+  const stages = stagesRes.rows;
+  const terminalNames = stages.filter(s => s.is_terminal).map(s => s.name);
+  let stage = contact.lifecycle_stage;
+  if (!terminalNames.includes(contact.lifecycle_stage)) {
+    const match = stages.find(s => !s.is_terminal && s.score_min != null &&
+      score >= s.score_min && (s.score_max == null || score <= s.score_max));
+    stage = match ? match.name : stage;
+  }
+
+  const action = contact.linkedin_personal ? 'linkedin' : (contact.phone ? 'call' : 'email');
+  await pool.query(
+    `UPDATE contacts SET lead_score = $2, lifecycle_stage = $3, next_action = $4, score_updated_at = NOW() WHERE email = $1`,
+    [email, score, stage, action]);
+
+  await syncTask(email, score, signals, action, stages);
+  return { score, stage };
+}
+
+// Create/update/close the contact's single open follow-up task based on state.
+async function syncTask(email, score, signals, action, stages) {
+  const hotStage = stages.find(s => s.is_hot && s.score_min != null);
+  const hotThreshold = hotStage ? hotStage.score_min : 40;
+  const isHot = signals.positive || score >= hotThreshold;
+
+  const openRes = await pool.query(
+    `SELECT id FROM tasks WHERE email = $1 AND status = 'open' ORDER BY id DESC LIMIT 1`, [email]);
+  const openId = openRes.rows[0]?.id;
+
+  if (!isHot) return; // leave any existing open task as-is; don't manufacture cold ones
+
+  const reason = signals.positive
+    ? 'Respondió con interés'
+    : `Abrió ${signals.opens} vez${signals.opens === 1 ? '' : 'es'}` +
+      (signals.clicks ? ` · ${signals.clicks} clic${signals.clicks === 1 ? '' : 's'}` : '');
+
+  if (openId) {
+    await pool.query(`UPDATE tasks SET reason = $2, action_type = $3, score_snapshot = $4 WHERE id = $1`,
+      [openId, reason, action, score]);
+  } else {
+    await pool.query(
+      `INSERT INTO tasks (email, reason, action_type, score_snapshot) VALUES ($1,$2,$3,$4)`,
+      [email, reason, action, score]);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 // CONTACTS
@@ -2099,5 +2333,138 @@ app.post('/api/admin/delete-custom-fields', auth, async (req, res) => {
 
 // ─── Catch-all frontend ────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/index.html')));
+
+// ═══════════════════════════════════════════════════════════
+// PIPELINE STAGES (config UI)
+// ═══════════════════════════════════════════════════════════
+app.get('/api/pipeline/stages', auth, async (req, res) => {
+  const r = await pool.query(`SELECT * FROM pipeline_stages ORDER BY sort_order, id`);
+  res.json(r.rows);
+});
+
+app.post('/api/pipeline/stages', auth, async (req, res) => {
+  const { name, color, score_min, score_max, is_terminal, is_hot } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const ord = await pool.query(`SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM pipeline_stages`);
+  const r = await pool.query(
+    `INSERT INTO pipeline_stages (name, color, sort_order, score_min, score_max, is_terminal, is_hot)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [name, color || '#888780', ord.rows[0].n, score_min ?? null, score_max ?? null,
+     !!is_terminal, !!is_hot]);
+  res.json(r.rows[0]);
+});
+
+app.patch('/api/pipeline/stages/:id', auth, async (req, res) => {
+  const fields = ['name', 'color', 'score_min', 'score_max', 'is_terminal', 'is_hot', 'sort_order'];
+  const sets = [], vals = [];
+  for (const f of fields) {
+    if (f in req.body) { vals.push(req.body[f]); sets.push(`${f} = $${vals.length}`); }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'no fields' });
+  vals.push(req.params.id);
+  const r = await pool.query(
+    `UPDATE pipeline_stages SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals);
+  res.json(r.rows[0]);
+});
+
+app.delete('/api/pipeline/stages/:id', auth, async (req, res) => {
+  await pool.query(`DELETE FROM pipeline_stages WHERE id = $1`, [req.params.id]);
+  res.json({ ok: true });
+});
+
+// Persist a new stage order (array of ids in display order).
+app.post('/api/pipeline/stages/reorder', auth, async (req, res) => {
+  const ids = req.body.ids || [];
+  for (let i = 0; i < ids.length; i++) {
+    await pool.query(`UPDATE pipeline_stages SET sort_order = $1 WHERE id = $2`, [i + 1, ids[i]]);
+  }
+  res.json({ ok: true });
+});
+
+// ═══════════════════════════════════════════════════════════
+// SCORING RULES (config UI)
+// ═══════════════════════════════════════════════════════════
+app.get('/api/scoring/rules', auth, async (req, res) => {
+  const r = await pool.query(`SELECT * FROM scoring_rules ORDER BY sort_order, id`);
+  res.json(r.rows);
+});
+
+app.post('/api/scoring/rules', auth, async (req, res) => {
+  const { name, event_type, condition_field, condition_op, condition_value, points, cap, active } = req.body;
+  if (!name || !event_type) return res.status(400).json({ error: 'name and event_type required' });
+  const ord = await pool.query(`SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM scoring_rules`);
+  const r = await pool.query(
+    `INSERT INTO scoring_rules (name, event_type, condition_field, condition_op, condition_value, points, cap, active, sort_order)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    [name, event_type, condition_field || null, condition_op || null, condition_value || null,
+     points ?? 0, cap ?? null, active !== false, ord.rows[0].n]);
+  res.json(r.rows[0]);
+});
+
+app.patch('/api/scoring/rules/:id', auth, async (req, res) => {
+  const fields = ['name', 'event_type', 'condition_field', 'condition_op', 'condition_value', 'points', 'cap', 'active', 'sort_order'];
+  const sets = [], vals = [];
+  for (const f of fields) {
+    if (f in req.body) { vals.push(req.body[f]); sets.push(`${f} = $${vals.length}`); }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'no fields' });
+  vals.push(req.params.id);
+  const r = await pool.query(
+    `UPDATE scoring_rules SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals);
+  res.json(r.rows[0]);
+});
+
+app.delete('/api/scoring/rules/:id', auth, async (req, res) => {
+  await pool.query(`DELETE FROM scoring_rules WHERE id = $1`, [req.params.id]);
+  res.json({ ok: true });
+});
+
+// Recompute every contact that has any activity. Run after editing rules so the
+// whole base reflects the new logic. Returns how many were processed.
+app.post('/api/scoring/recompute-all', auth, async (req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT DISTINCT email FROM (
+        SELECT email FROM campaign_activity
+        UNION SELECT email FROM campaign_leads
+      ) e`);
+    let n = 0;
+    for (const row of r.rows) {
+      try { await recomputeScore(row.email); n++; } catch (_) { /* skip bad row */ }
+    }
+    res.json({ ok: true, processed: n });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// TASKS (Daily Hot List)
+// ═══════════════════════════════════════════════════════════
+// Open tasks joined with the contact info the user needs to act — ranked hottest
+// first. This is the single screen that drives the day.
+app.get('/api/tasks', auth, async (req, res) => {
+  const status = req.query.status || 'open';
+  const r = await pool.query(`
+    SELECT t.id, t.email, t.reason, t.action_type, t.score_snapshot, t.status, t.created_at,
+           c.first_name, c.last_name, c.company, c.industry, c.job_title,
+           c.linkedin_personal, c.phone, c.lead_score, c.lifecycle_stage
+      FROM tasks t
+      JOIN contacts c ON c.email = t.email
+     WHERE t.status = $1
+     ORDER BY c.lead_score DESC NULLS LAST, t.created_at ASC
+     LIMIT 200`, [status]);
+  res.json(r.rows);
+});
+
+app.patch('/api/tasks/:id', auth, async (req, res) => {
+  const status = req.body.status;
+  if (!['open', 'done', 'dismissed'].includes(status)) return res.status(400).json({ error: 'bad status' });
+  const completed = status === 'open' ? null : new Date();
+  const r = await pool.query(
+    `UPDATE tasks SET status = $2, completed_at = $3 WHERE id = $1 RETURNING *`,
+    [req.params.id, status, completed]);
+  res.json(r.rows[0]);
+});
 
 app.listen(PORT, () => console.log(`CRM Labora running on port ${PORT}`));

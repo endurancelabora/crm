@@ -390,6 +390,8 @@ let state = {
   cleanupField: '', cleanupRows: [], cleanupLoading: false,
   cleanupSort: 'count', cleanupDir: 'DESC', cleanupSearch: '', cleanupSelected: new Set(),
   cleanupPage: 1, cleanupLimit: 20, cleanupTotal: 0,
+  hotTasks: [], hotLoading: false,
+  cfgStages: [], cfgRules: [], cfgLoading: false, cfgRecomputing: false,
 };
 
 // Sort icon helper
@@ -696,6 +698,7 @@ function renderApp() {
   <div class="app">
     <aside class="sidebar">
       <div class="logo">CRM <span>Labora</span></div>
+      <div class="nav-item ${state.view==='hoy'?'active':''}" data-view="hoy"><span class="nav-icon">🔥</span> Hoy</div>
       <div class="nav-item ${state.view==='contacts'?'active':''}" data-view="contacts"><span class="nav-icon">👥</span> Contacts</div>
       <div class="nav-item ${state.view==='companies'?'active':''}" data-view="companies"><span class="nav-icon">🏢</span> Companies</div>
       <div class="nav-item ${state.view==='names'?'active':''}" data-view="names"><span class="nav-icon">🧑</span> Names</div>
@@ -703,7 +706,8 @@ function renderApp() {
       <div class="nav-item ${state.view==='activity'?'active':''}" data-view="activity"><span class="nav-icon">📬</span> Actividad</div>
       <div class="nav-item ${state.view==='cleanup'?'active':''}" data-view="cleanup"><span class="nav-icon">🧹</span> Limpieza</div>
       <div class="nav-item ${state.view==='import'?'active':''}" data-view="import"><span class="nav-icon">📥</span> Import</div>
-      <div class="nav-item ${state.view==='admin'?'active':''}" data-view="admin" style="margin-top:auto"><span class="nav-icon">⚙</span> Admin</div>
+      <div class="nav-item ${state.view==='config'?'active':''}" data-view="config" style="margin-top:auto"><span class="nav-icon">🎯</span> Pipeline y scoring</div>
+      <div class="nav-item ${state.view==='admin'?'active':''}" data-view="admin"><span class="nav-icon">⚙</span> Admin</div>
       <div style="margin-top:auto; padding: 16px 20px;">
         <button class="btn btn-ghost" id="theme-toggle-btn" style="width:100%;font-size:12px;margin-bottom:8px">${getTheme()==='light' ? '🌙 Modo noche' : '☀️ Modo día'}</button>
         <div style="color:var(--text2);font-size:11px;margin-bottom:6px">Active session</div>
@@ -711,7 +715,7 @@ function renderApp() {
       </div>
     </aside>
     <div class="main" id="main-content">
-      ${state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'names' ? renderNames() : state.view === 'activity' ? renderActivity() : state.view === 'cleanup' ? renderCleanup() : state.view === 'import' ? renderImport() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
+      ${state.view === 'hoy' ? renderHotList() : state.view === 'config' ? renderConfig() : state.view === 'contacts' ? renderContacts() : state.view === 'companies' ? renderCompanies() : state.view === 'names' ? renderNames() : state.view === 'activity' ? renderActivity() : state.view === 'cleanup' ? renderCleanup() : state.view === 'import' ? renderImport() : state.view === 'admin' ? renderAdmin() : renderCampaigns()}
     </div>
   </div>
   ${renderDrawer()}
@@ -2162,6 +2166,277 @@ function bindImport() {
 // ═══════════════════════════════════════════════════════════
 // EVENTS
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// HOY — Daily Hot List
+// ═══════════════════════════════════════════════════════════
+const HOT_ACTIONS = { linkedin: '💼 LinkedIn', call: '📞 Llamar', email: '✉ Email' };
+
+async function loadHotList() {
+  state.hotLoading = true;
+  const data = await apiFetch('/api/tasks?status=open');
+  state.hotTasks = Array.isArray(data) ? data : [];
+  state.hotLoading = false;
+  render();
+}
+
+function hotName(t) {
+  const n = [t.first_name, t.last_name].filter(Boolean).join(' ');
+  return n || t.email.split('@')[0];
+}
+
+function renderHotList() {
+  const tasks = state.hotTasks;
+  let body;
+  if (state.hotLoading) body = `<div style="color:var(--text2); padding:20px">Cargando…</div>`;
+  else if (!tasks.length) body = `
+    <div style="text-align:center; color:var(--text2); padding:60px 20px">
+      <div style="font-size:32px; margin-bottom:8px">🌙</div>
+      <div style="font-weight:500; color:var(--text)">Nada caliente por ahora</div>
+      <div style="font-size:13px; margin-top:4px">Cuando un lead abra, haga clic o responda, aparecerá aquí ordenado por qué tan caliente está.</div>
+    </div>`;
+  else body = tasks.map(renderHotCard).join('');
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Hoy</div>
+      <div class="page-subtitle">${tasks.length} contacto${tasks.length===1?'':'s'} que vale la pena tocar hoy</div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-ghost" id="hot-refresh">↻ Actualizar</button>
+    </div>
+  </div>
+  <div style="padding:20px 32px; display:flex; flex-direction:column; gap:12px; max-width:840px">${body}</div>`;
+}
+
+function renderHotCard(t) {
+  const name = hotName(t);
+  const meta = [t.job_title, t.company, t.industry].filter(Boolean).join(' · ');
+  const score = t.lead_score ?? t.score_snapshot ?? 0;
+  const li = t.linkedin_personal ? fmtLink(t.linkedin_personal, 'Abrir LinkedIn ↗') : '';
+  const actionLabel = HOT_ACTIONS[t.action_type] || '';
+  return `
+  <div style="background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px 18px; display:flex; gap:14px; align-items:flex-start">
+    <div style="min-width:48px; height:48px; border-radius:10px; background:var(--bg3); display:flex; flex-direction:column; align-items:center; justify-content:center">
+      <div style="font-size:16px; font-weight:600; color:var(--accent-light); line-height:1.1">${score}</div>
+      <div style="font-size:9px; color:var(--text2); text-transform:uppercase; letter-spacing:.5px">score</div>
+    </div>
+    <div style="flex:1; min-width:0">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+        <span style="font-weight:600; font-size:15px">${esc(name)}</span>
+        ${t.lifecycle_stage ? `<span class="badge" style="background:var(--bg3); color:var(--text2)">${esc(t.lifecycle_stage)}</span>` : ''}
+      </div>
+      ${meta ? `<div style="color:var(--text2); font-size:12.5px; margin-top:2px">${esc(meta)}</div>` : ''}
+      <div style="margin-top:8px; font-size:13px"><span style="color:var(--amber)">●</span> ${esc(t.reason || '')}</div>
+      <div style="margin-top:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+        ${actionLabel ? `<span class="badge" style="background:#1e3a5f; color:var(--blue)">Sugerido: ${actionLabel}</span>` : ''}
+        ${li}
+      </div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:6px">
+      <button class="btn btn-green hot-done" data-id="${t.id}">✓ Hecho</button>
+      <button class="btn btn-ghost hot-dismiss" data-id="${t.id}">Descartar</button>
+    </div>
+  </div>`;
+}
+
+function bindHotListEvents() {
+  document.getElementById('hot-refresh')?.addEventListener('click', loadHotList);
+  document.querySelectorAll('.hot-done').forEach(b => b.addEventListener('click', () => completeTask(b.dataset.id, 'done')));
+  document.querySelectorAll('.hot-dismiss').forEach(b => b.addEventListener('click', () => completeTask(b.dataset.id, 'dismissed')));
+}
+
+async function completeTask(id, status) {
+  await apiFetch('/api/tasks/' + id, { method: 'PATCH', body: JSON.stringify({ status }) });
+  state.hotTasks = state.hotTasks.filter(t => String(t.id) !== String(id));
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════
+// CONFIG — Pipeline y scoring (editable desde la UI)
+// ═══════════════════════════════════════════════════════════
+const RULE_EVENTS = {
+  email_open: 'Abrió email', email_click: 'Hizo clic en link',
+  reply_positive: 'Respondió positivo', reply_negative: 'Respondió negativo',
+  inactivity: 'Sin actividad (días)',
+};
+const COND_FIELDS = { '': 'Sin condición', industry: 'Industria', country: 'País', job_title: 'Puesto', company: 'Empresa' };
+
+function toHexColor(c) { return /^#[0-9a-fA-F]{6}$/.test(c || '') ? c : '#888780'; }
+
+async function loadConfig() {
+  state.cfgLoading = true;
+  const [stages, rules] = await Promise.all([
+    apiFetch('/api/pipeline/stages'),
+    apiFetch('/api/scoring/rules'),
+  ]);
+  state.cfgStages = Array.isArray(stages) ? stages : [];
+  state.cfgRules = Array.isArray(rules) ? rules : [];
+  state.cfgLoading = false;
+  render();
+}
+
+function renderConfig() {
+  if (state.cfgLoading) return `
+    <div class="page-header"><div><div class="page-title">Pipeline y scoring</div></div></div>
+    <div style="padding:32px; color:var(--text2)">Cargando…</div>`;
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Pipeline y scoring</div>
+      <div class="page-subtitle">Los cambios se aplican al instante. Recalcula la base tras editar reglas.</div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-secondary" id="cfg-recompute">${state.cfgRecomputing ? 'Recalculando…' : '↻ Recalcular todos'}</button>
+    </div>
+  </div>
+  <div style="padding:24px 32px; max-width:920px">
+    ${renderStagesSection()}
+    ${renderRulesSection()}
+  </div>`;
+}
+
+function renderStagesSection() {
+  const n = state.cfgStages.length;
+  const cards = state.cfgStages.map((s, i) => `
+    <div style="background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:12px; min-width:158px; flex:1">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
+        <div style="display:flex; gap:2px">
+          <button class="btn btn-ghost stg-up" data-id="${s.id}" style="padding:2px 7px" ${i===0?'disabled':''}>↑</button>
+          <button class="btn btn-ghost stg-down" data-id="${s.id}" style="padding:2px 7px" ${i===n-1?'disabled':''}>↓</button>
+        </div>
+        <button class="btn btn-ghost stg-del" data-id="${s.id}" style="padding:2px 8px; color:var(--red)">✕</button>
+      </div>
+      <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px">
+        <input type="color" class="stg-color" data-id="${s.id}" value="${toHexColor(s.color)}" style="width:28px; height:28px; border:none; background:none; padding:0; cursor:pointer">
+        <input class="form-control stg-name" data-id="${s.id}" value="${escAttr(s.name)}" style="padding:6px 8px; font-size:13px">
+      </div>
+      <div style="display:flex; gap:6px; align-items:center; font-size:11px; color:var(--text2)">
+        <span>score</span>
+        <input class="form-control stg-min" data-id="${s.id}" value="${s.score_min ?? ''}" placeholder="min" style="padding:4px 6px; font-size:12px; width:54px" ${s.is_terminal?'disabled':''}>
+        <span>–</span>
+        <input class="form-control stg-max" data-id="${s.id}" value="${s.score_max ?? ''}" placeholder="∞" style="padding:4px 6px; font-size:12px; width:54px" ${s.is_terminal?'disabled':''}>
+      </div>
+      <div style="margin-top:8px; font-size:11px; color:var(--text2); display:flex; gap:12px">
+        <label style="display:flex; gap:4px; align-items:center; cursor:pointer"><input type="checkbox" class="stg-hot" data-id="${s.id}" ${s.is_hot?'checked':''}> caliente</label>
+        <label style="display:flex; gap:4px; align-items:center; cursor:pointer"><input type="checkbox" class="stg-term" data-id="${s.id}" ${s.is_terminal?'checked':''}> manual</label>
+      </div>
+    </div>`).join('');
+  return `
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px">
+      <div style="font-size:15px; font-weight:600">Etapas del pipeline</div>
+      <button class="btn btn-ghost" id="stg-add">+ Agregar etapa</button>
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:28px">${cards || '<span style="color:var(--text2)">Sin etapas</span>'}</div>`;
+}
+
+function renderRulesSection() {
+  const rows = state.cfgRules.map(r => {
+    const cond = r.condition_field
+      ? `${esc(COND_FIELDS[r.condition_field] || r.condition_field)} ${r.condition_op==='equals'?'=':'~'} ${esc(r.condition_value||'')}`
+      : (r.event_type==='inactivity' ? `${esc(r.condition_value||'30')} días` : '—');
+    const pColor = r.points < 0 ? 'var(--red)' : 'var(--green)';
+    return `
+    <tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px 10px">${esc(r.name)}<div style="font-size:11px; color:var(--text2)">${esc(RULE_EVENTS[r.event_type] || r.event_type)}</div></td>
+      <td style="padding:8px 10px; color:var(--text2); font-size:12px">${cond}</td>
+      <td style="padding:8px 10px; text-align:right"><input class="form-control rule-points" data-id="${r.id}" value="${r.points}" style="width:66px; text-align:right; padding:4px 6px; color:${pColor}"></td>
+      <td style="padding:8px 10px; text-align:center"><input type="checkbox" class="rule-active" data-id="${r.id}" ${r.active?'checked':''} style="width:16px; height:16px; cursor:pointer"></td>
+      <td style="padding:8px 10px; text-align:right"><button class="btn btn-ghost rule-del" data-id="${r.id}" style="padding:2px 8px; color:var(--red)">✕</button></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div style="font-size:15px; font-weight:600; margin-bottom:10px">Reglas de scoring</div>
+    <div style="border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:16px">
+      <table style="width:100%; border-collapse:collapse; font-size:13px">
+        <thead><tr style="background:var(--bg3); text-align:left">
+          <th style="padding:8px 10px; font-weight:500; color:var(--text2)">Regla</th>
+          <th style="padding:8px 10px; font-weight:500; color:var(--text2)">Condición</th>
+          <th style="padding:8px 10px; font-weight:500; color:var(--text2); text-align:right">Puntos</th>
+          <th style="padding:8px 10px; font-weight:500; color:var(--text2); text-align:center">Activa</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="5" style="padding:14px; color:var(--text2)">Sin reglas</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div style="border:1px dashed var(--border); border-radius:10px; padding:14px 16px; background:var(--bg2)">
+      <div style="font-size:11px; color:var(--text2); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px">Nueva regla</div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end">
+        <div><div style="font-size:11px; color:var(--text2); margin-bottom:4px">Nombre</div><input class="form-control" id="nr-name" placeholder="Visitó página de curso" style="padding:6px 8px; width:180px"></div>
+        <div><div style="font-size:11px; color:var(--text2); margin-bottom:4px">Cuando ocurre</div><select class="form-control" id="nr-event" style="padding:6px 8px">${Object.entries(RULE_EVENTS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('')}</select></div>
+        <div><div style="font-size:11px; color:var(--text2); margin-bottom:4px">Condición</div><select class="form-control" id="nr-field" style="padding:6px 8px">${Object.entries(COND_FIELDS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('')}</select></div>
+        <div><div style="font-size:11px; color:var(--text2); margin-bottom:4px">Valor</div><input class="form-control" id="nr-value" placeholder="importador" style="padding:6px 8px; width:120px"></div>
+        <div><div style="font-size:11px; color:var(--text2); margin-bottom:4px">Puntos</div><input class="form-control" id="nr-points" type="number" value="10" style="padding:6px 8px; width:72px"></div>
+        <button class="btn btn-secondary" id="nr-save">✓ Guardar</button>
+      </div>
+    </div>`;
+}
+
+async function patchStage(id, body) { await apiFetch('/api/pipeline/stages/' + id, { method: 'PATCH', body: JSON.stringify(body) }); }
+async function patchRule(id, body) { await apiFetch('/api/scoring/rules/' + id, { method: 'PATCH', body: JSON.stringify(body) }); }
+
+async function addStage() {
+  await apiFetch('/api/pipeline/stages', { method: 'POST', body: JSON.stringify({ name: 'Nueva etapa', color: '#888780' }) });
+  loadConfig();
+}
+async function delStage(id) {
+  if (!confirm('¿Eliminar esta etapa?')) return;
+  await apiFetch('/api/pipeline/stages/' + id, { method: 'DELETE' });
+  loadConfig();
+}
+function moveStage(id, dir) {
+  const ids = state.cfgStages.map(s => s.id);
+  const idx = ids.indexOf(Number(id));
+  const ni = idx + dir;
+  if (ni < 0 || ni >= ids.length) return;
+  ids.splice(ni, 0, ids.splice(idx, 1)[0]);
+  apiFetch('/api/pipeline/stages/reorder', { method: 'POST', body: JSON.stringify({ ids }) }).then(loadConfig);
+}
+async function delRule(id) {
+  if (!confirm('¿Eliminar esta regla?')) return;
+  await apiFetch('/api/scoring/rules/' + id, { method: 'DELETE' });
+  loadConfig();
+}
+async function saveNewRule() {
+  const name = document.getElementById('nr-name').value.trim();
+  const event_type = document.getElementById('nr-event').value;
+  const field = document.getElementById('nr-field').value;
+  const value = document.getElementById('nr-value').value.trim();
+  const points = parseInt(document.getElementById('nr-points').value, 10) || 0;
+  if (!name) { alert('Ponle un nombre a la regla.'); return; }
+  const body = {
+    name, event_type, points,
+    condition_field: field || null,
+    condition_op: field ? 'contains' : null,
+    condition_value: field ? value : (event_type === 'inactivity' ? (value || '30') : null),
+  };
+  await apiFetch('/api/scoring/rules', { method: 'POST', body: JSON.stringify(body) });
+  loadConfig();
+}
+async function recomputeAll() {
+  state.cfgRecomputing = true; render();
+  const r = await apiFetch('/api/scoring/recompute-all', { method: 'POST', body: '{}' });
+  state.cfgRecomputing = false; render();
+  alert('Recalculados ' + (r?.processed ?? 0) + ' contactos.');
+}
+
+function bindConfigEvents() {
+  document.getElementById('cfg-recompute')?.addEventListener('click', recomputeAll);
+  document.getElementById('stg-add')?.addEventListener('click', addStage);
+  document.querySelectorAll('.stg-del').forEach(b => b.addEventListener('click', () => delStage(b.dataset.id)));
+  document.querySelectorAll('.stg-up').forEach(b => b.addEventListener('click', () => moveStage(b.dataset.id, -1)));
+  document.querySelectorAll('.stg-down').forEach(b => b.addEventListener('click', () => moveStage(b.dataset.id, 1)));
+  document.querySelectorAll('.stg-name').forEach(i => i.addEventListener('change', () => patchStage(i.dataset.id, { name: i.value })));
+  document.querySelectorAll('.stg-color').forEach(i => i.addEventListener('change', () => patchStage(i.dataset.id, { color: i.value })));
+  document.querySelectorAll('.stg-min').forEach(i => i.addEventListener('change', () => patchStage(i.dataset.id, { score_min: i.value === '' ? null : parseInt(i.value, 10) })));
+  document.querySelectorAll('.stg-max').forEach(i => i.addEventListener('change', () => patchStage(i.dataset.id, { score_max: i.value === '' ? null : parseInt(i.value, 10) })));
+  document.querySelectorAll('.stg-hot').forEach(i => i.addEventListener('change', async () => { await patchStage(i.dataset.id, { is_hot: i.checked }); loadConfig(); }));
+  document.querySelectorAll('.stg-term').forEach(i => i.addEventListener('change', async () => { await patchStage(i.dataset.id, { is_terminal: i.checked }); loadConfig(); }));
+  document.querySelectorAll('.rule-points').forEach(i => i.addEventListener('change', () => patchRule(i.dataset.id, { points: parseInt(i.value, 10) || 0 })));
+  document.querySelectorAll('.rule-active').forEach(i => i.addEventListener('change', () => patchRule(i.dataset.id, { active: i.checked })));
+  document.querySelectorAll('.rule-del').forEach(b => b.addEventListener('click', () => delRule(b.dataset.id)));
+  document.getElementById('nr-save')?.addEventListener('click', saveNewRule);
+}
+
 function bindApp() {
   document.querySelectorAll('.nav-item[data-view]').forEach(el => {
     el.addEventListener('click', () => {
@@ -2177,6 +2452,8 @@ function bindApp() {
     API_KEY = ''; localStorage.removeItem('crm_api_key'); render();
   });
 
+  if (state.view === 'hoy') { bindHotListEvents(); if (!state.hotLoading && !state.hotTasks.length) loadHotList(); }
+  if (state.view === 'config') { bindConfigEvents(); if (!state.cfgLoading && !state.cfgStages.length) loadConfig(); }
   if (state.view === 'contacts') bindContactsEvents();
   if (state.view === 'campaigns') bindCampaignEvents();
   if (state.view === 'companies') bindCompanyEvents();
